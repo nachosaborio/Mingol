@@ -137,6 +137,9 @@ public class Lexer {
                     token = new Token(MingolToken.LT, character);
                 }
                 break;
+            case "#":
+                token = new Token(MingolToken.COMMENT, character);
+                break;
             default:
                 if (IsLetter(character)) {
                     String literal = ReadIdentifier();
