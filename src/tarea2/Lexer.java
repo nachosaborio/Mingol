@@ -18,18 +18,21 @@ public class Lexer {
         ReadCharacter();
     }
 
+    //Verifica si el siguiente caracter es letra
     private boolean IsLetter(String caracter) {
         Pattern pat = Pattern.compile("^[a-zA-Z_]$");
         Matcher mat = pat.matcher(caracter);
         return mat.matches();
     }
 
+    //Verifica si el siguiente caracter es un número
     private boolean IsNumber(String caracter) {
         Pattern pat = Pattern.compile("^[\\d]$");
         Matcher mat = pat.matcher(caracter);
         return mat.matches();
     }
 
+    //Crea un token de dos caracteres
     private Token MakeTwoCharacterToken(MingolToken type) {
         String prefix = character;
         ReadCharacter();
@@ -37,6 +40,7 @@ public class Lexer {
         return new Token(type, prefix + suffix);
     }
 
+    //Predice el siguiente caracter
     public String PeekCharacter() {
         if (readPosition >= source.length()) {
             return "";
@@ -45,6 +49,7 @@ public class Lexer {
         }
     }
 
+    //Lee el siguiente caracter
     public void ReadCharacter() {
         if (readPosition >= source.length()) {
             character = "";
@@ -55,6 +60,7 @@ public class Lexer {
         readPosition++;
     }
 
+    //Va leyendo una palabra letra por letra
     private String ReadIdentifier() {
         int initialPosition = position;
 
@@ -64,6 +70,7 @@ public class Lexer {
         return source.substring(initialPosition, position);
     }
 
+    //Va leyendo un número dígito por dígito
     private String ReadNumber() {
         int initialPosition = position;
         while (IsNumber(character)) {
@@ -72,16 +79,21 @@ public class Lexer {
         return source.substring(initialPosition, position);
     }
 
+    //Elimina los espacios en blanco
     private void SkipWhiteSpace() {
         while (character.matches("^[\\s]$")) {
             ReadCharacter();
         }
     }
 
+    //Toma el siguiente token y lo clasifica
     public Token NextToken() {
         Token token;
         SkipWhiteSpace();
         switch (character) {
+            case ".":
+                token = new Token(MingolToken.DECIMAL, character);
+                break;
             case ":":
                 if (PeekCharacter().equals("=")) {
                     token = MakeTwoCharacterToken(MingolToken.ASSIGN);

@@ -13,6 +13,14 @@ public class Token {
         this.Literal = Literal;
     }
 
+    public MingolToken getTokenType() {
+        return TokenType;
+    }
+
+    public String getLiteral() {
+        return Literal;
+    }
+
     public String Tuple() {
         String result = "Type: " + TokenType + ", Literal: " + Literal;
         return result;
@@ -43,6 +51,8 @@ public class Token {
         keywords.put("LT", MingolToken.LT);
         keywords.put("NE", MingolToken.NE);
         keywords.put("OD", MingolToken.OD);
+        keywords.put("print", MingolToken.PRINT);
+        keywords.put("read", MingolToken.READ);
         keywords.put("REAL", MingolToken.TYPEREAL);
         keywords.put("RETURN", MingolToken.RETURN);
         keywords.put("SKIP", MingolToken.SKIP);

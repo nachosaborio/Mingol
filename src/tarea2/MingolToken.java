@@ -8,6 +8,7 @@ public enum MingolToken {
     CHARACTER,//TODO
     COMMA,//
     COMMENT,//
+    DECIMAL,
     DIVISION,//
     DO,//
     EOL,//
@@ -29,8 +30,10 @@ public enum MingolToken {
     LPAREN,//
     LT,//
     MULTIPLICATION,//
-    OD,//
     NE,//
+    OD,//
+    PRINT,
+    READ,
     REAL,//
     RETURN,//
     RPAREN,//
