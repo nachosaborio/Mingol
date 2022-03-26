@@ -67,12 +67,17 @@ loop:           for (int i = 0; i < source.length(); i++) {
                                 error += "\tError: no puede haber más de una sentencia Begin en el mismo archivo.\n";
                             }
                             break;
+                        case END:
+                            if (!isEnd) {
+                                isEnd = true;
+                            } else {
+                                error += "\tError: no puede haber más de una sentencia End en el mismo archivo.\n";
+                            }
+                            break;
                         case EOL:
                             break loop;
-                        case END:
-                            break;
                     }
-                } // Fin procesamiento de token
+                } // Fin procesamiento de tokens
                 writer.write(linea + "\t" + line + "\n");
                 if (error != "") {
                     writer.write(error);
@@ -81,7 +86,10 @@ loop:           for (int i = 0; i < source.length(); i++) {
                 error = "";
                 linea++;
                 line = reader.readLine();
-            }//Fin procesamiento de línea
+            }//Fin procesamiento de líneas
+            if(!isEnd){
+                writer.write("\tError: el archivo no incluye el comando END.\n");
+            }
             reader.close();
             writer.close();
         } catch (IOException e) {
