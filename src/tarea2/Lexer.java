@@ -10,6 +10,7 @@ public class Lexer {
     private int readPosition;
     private int position;
 
+    //Constructor
     public Lexer(String source) {
         this.source = source;
         this.character = "";

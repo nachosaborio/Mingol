@@ -17,10 +17,6 @@ public class Token {
         return TokenType;
     }
 
-    public String getLiteral() {
-        return Literal;
-    }
-
     public String Tuple() {
         String result = "Type: " + TokenType + ", Literal: " + Literal;
         return result;
@@ -60,7 +56,6 @@ public class Token {
         keywords.put("THEN", MingolToken.THEN);
         keywords.put("TO", MingolToken.TO);
         keywords.put("TRUE", MingolToken.TRUE);
-        //keywords.put(":=", MingolToken.ASSIGN);
 
         MingolToken elToken = (MingolToken) keywords.get(literal);
         if (elToken != null) {

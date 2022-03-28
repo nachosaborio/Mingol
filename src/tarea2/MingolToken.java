@@ -1,5 +1,6 @@
 package tarea2;
 
+//Lista de tokens de Mingol
 public enum MingolToken {
     ADDITION,//
     ASSIGN,//
