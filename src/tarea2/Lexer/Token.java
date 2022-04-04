@@ -1,4 +1,4 @@
-package tarea2;
+package tarea2.Lexer;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -15,6 +15,10 @@ public class Token {
 
     public MingolToken getTokenType() {
         return TokenType;
+    }
+
+    public String getLiteral() {
+        return Literal;
     }
 
     public String Tuple() {

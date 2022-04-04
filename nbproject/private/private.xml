@@ -3,11 +3,9 @@
     <editor-bookmarks xmlns="http://www.netbeans.org/ns/editor-bookmarks/2" lastBookmarkId="0"/>
     <open-files xmlns="http://www.netbeans.org/ns/projectui-open-files/2">
         <group>
-            <file>file:/C:/Users/EQUIPO/Desktop/Ignacio/UNED/F%20-%20Compiladores%20II/Tarea2/src/tarea2/Repl.java</file>
-            <file>file:/C:/Users/EQUIPO/Desktop/Ignacio/UNED/F%20-%20Compiladores%20II/Tarea2/src/tarea2/Lexer.java</file>
-            <file>file:/C:/Users/EQUIPO/Desktop/Ignacio/UNED/F%20-%20Compiladores%20II/Tarea2/src/tarea2/MingolToken.java</file>
+            <file>file:/C:/Users/EQUIPO/Desktop/Ignacio/UNED/F%20-%20Compiladores%20II/Tarea2/src/Parser/Program.java</file>
             <file>file:/C:/Users/EQUIPO/Desktop/Ignacio/UNED/F%20-%20Compiladores%20II/Tarea2/src/tarea2/Tarea2.java</file>
-            <file>file:/C:/Users/EQUIPO/Desktop/Ignacio/UNED/F%20-%20Compiladores%20II/Tarea2/src/tarea2/Token.java</file>
+            <file>file:/C:/Users/EQUIPO/Desktop/Ignacio/UNED/F%20-%20Compiladores%20II/Tarea2/src/Parser/Parser.java</file>
         </group>
     </open-files>
 </project-private>

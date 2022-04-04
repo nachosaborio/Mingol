@@ -1,4 +1,4 @@
-package tarea2;
+package tarea2.Lexer;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

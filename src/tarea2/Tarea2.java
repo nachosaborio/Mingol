@@ -17,6 +17,11 @@
 
 package tarea2;
 
+import Parser.Parser;
+import Parser.Program;
+import tarea2.Lexer.Lexer;
+import tarea2.Lexer.MingolToken;
+import tarea2.Lexer.Token;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -187,5 +192,12 @@ loop:           for (int i = 0; i < source.length(); i++) {
             else{
                 return false;
             }
+    }
+    
+    private static void TestParser(){
+        String source = "STRING x := 5;";
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
     }
 }

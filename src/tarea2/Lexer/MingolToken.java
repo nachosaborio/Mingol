@@ -1,4 +1,4 @@
-package tarea2;
+package tarea2.Lexer;
 
 //Lista de tokens de Mingol
 public enum MingolToken {
