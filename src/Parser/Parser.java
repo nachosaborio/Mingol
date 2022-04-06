@@ -1,6 +1,6 @@
 package Parser;
 
-import tarea2.Lexer.Lexer;
+import Lexer.Lexer;
 
 public class Parser {
 

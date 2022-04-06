@@ -19,9 +19,9 @@ package tarea2;
 
 import Parser.Parser;
 import Parser.Program;
-import tarea2.Lexer.Lexer;
-import tarea2.Lexer.MingolToken;
-import tarea2.Lexer.Token;
+import Lexer.Lexer;
+import Lexer.MingolToken;
+import Lexer.Token;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -159,6 +159,8 @@ loop:           for (int i = 0; i < source.length(); i++) {
                             break;
                         case EOL:
                             break loop;
+                        default:
+                            break;
                     }
                     tokens.add(tempToken);
                 } // Fin procesamiento de tokens

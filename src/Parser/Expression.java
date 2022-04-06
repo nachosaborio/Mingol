@@ -1,6 +1,6 @@
 package Parser;
 
-import tarea2.Lexer.Token;
+import Lexer.Token;
 
 public class Expression implements ASTNode{
 

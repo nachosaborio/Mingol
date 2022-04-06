@@ -1,6 +1,6 @@
 package Parser;
 
-import tarea2.Lexer.Token;
+import Lexer.Token;
 
 public class Statement implements ASTNode{
     private Token token;
