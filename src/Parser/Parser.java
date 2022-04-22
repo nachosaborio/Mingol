@@ -66,6 +66,9 @@ public class Parser {
             if(currentToken.getTokenType() == MingolToken.TYPEINT){
                 return ParseLetStatement();
             }
+            else if(currentToken.getTokenType() == MingolToken.RETURN){
+                return ParseReturnStatement();
+            }
             else{
                 return null;
             }
@@ -94,5 +97,18 @@ public class Parser {
             }
             return letStatement;
         }
+    }
+    
+    private ReturnStatement ParseReturnStatement(){
+        if(currentToken == null){
+            return null;
+        }
+        ReturnStatement returnStatement = new ReturnStatement(currentToken);
+        AdvanceToken();
+        //TODO terminar cuando sepamos parsear expresiones
+        while(currentToken.getTokenType() != MingolToken.SEMICOLON){
+            AdvanceToken();
+        }
+        return returnStatement;
     }
 }
