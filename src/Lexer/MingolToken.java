@@ -28,6 +28,7 @@ public enum MingolToken {
     ILLEGAL,//
     INTEGER,//
     LE,//
+    LET,
     LPAREN,//
     LT,//
     MULTIPLICATION,//

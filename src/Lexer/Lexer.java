@@ -121,6 +121,7 @@ public class Lexer {
             case "*":
                 token = new Token(MingolToken.MULTIPLICATION, character);
                 break;
+            case "\n":
             case "":
                 token = new Token(MingolToken.EOL, "\\n");
                 break;

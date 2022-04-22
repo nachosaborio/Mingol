@@ -32,22 +32,23 @@ import java.util.ArrayList;
 public class Tarea2 {
 
     public static void main(String[] args) {
-         try {
-        String path = args[0];
-        String parts[] = path.split("\\.");
-        if (parts.length == 1) {
-            path += ".mingol";
-        }
-        //String path = "prueba.mingol";
-        if(TestTarea(path)){
-            String rutaArchivo = Paths.get("").toAbsolutePath().toString();
-            rutaArchivo += "//" + path.replace("mingol", "a68");
-            Runtime runtime = Runtime.getRuntime();
-            Runtime.getRuntime().exec("cmd /c \"start cmd /k"+ "C:\\Algol\\a68g.exe " + path.replace("mingol", "a68"));
-        }
-        } catch (IOException e) {
-            System.out.println(e.getMessage());
-        }
+        //  try {
+        // String path = args[0];
+        // String parts[] = path.split("\\.");
+        // if (parts.length == 1) {
+        //     path += ".mingol";
+        // }
+        // //String path = "prueba.mingol";
+        // if(TestTarea(path)){
+        //     String rutaArchivo = Paths.get("").toAbsolutePath().toString();
+        //     rutaArchivo += "//" + path.replace("mingol", "a68");
+        //     Runtime runtime = Runtime.getRuntime();
+        //     Runtime.getRuntime().exec("cmd /c \"start cmd /k"+ "C:\\Algol\\a68g.exe " + path.replace("mingol", "a68"));
+        // }
+        // } catch (IOException e) {
+        //     System.out.println(e.getMessage());
+        // }
+        TestParseErrors();
     }
 
     private static boolean TestTarea(String archivoOriginal) throws IOException{
@@ -199,7 +200,23 @@ loop:           for (int i = 0; i < source.length(); i++) {
     private static void TestParser(){
         String source = "STRING x := 5;";
         Lexer lexer = new Lexer(source);
-        Parser parser = new Parser(lexer);
+        Parser parser = new Parser(lexer,null,null);
         Program program = parser.ParseProgram();
+    }
+
+    private static void TestLetStatement(){
+        String source = "INT x := 5;\nINT y := 10;\nINT z := 20;";
+        Lexer lexer = new Lexer(source);
+
+        Parser parser = new Parser(lexer, null,null);
+        Program program = parser.ParseProgram();
+    }
+
+    private static void TestParseErrors(){
+        String source = "INT x 5;";
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer,null,null);
+        
+        System.out.println(parser.GetErrors());
     }
 }

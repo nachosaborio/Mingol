@@ -4,16 +4,16 @@ import java.util.ArrayList;
 
 public class Program implements ASTNode{
 
-    private Statement[] statements;
+    public ArrayList<Statement> statements;
     
-    public Program(Statement[] statements) {
+    public Program(ArrayList<Statement> statements) {
         this.statements = statements;
     }
     
     @Override
     public String TokenLiteral() {
-        if(statements.length > 0){
-            return statements[0].TokenLiteral();
+        if(statements.size() > 0){
+            return statements.get(0).TokenLiteral();
         }
         else{
             return "";
