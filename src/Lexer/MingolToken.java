@@ -3,6 +3,7 @@ package Lexer;
 //Lista de tokens de Mingol
 public enum MingolToken {
     ADDITION,//
+    ALGOL,
     ASSIGN,//
     BEGIN,//
     BY,//

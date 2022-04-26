@@ -1,5 +1,6 @@
 package Parser;
 
+import Parser.Interfaces.ASTNode;
 import Lexer.Token;
 
 public class Expression implements ASTNode{

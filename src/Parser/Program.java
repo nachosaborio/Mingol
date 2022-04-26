@@ -1,5 +1,6 @@
 package Parser;
 
+import Parser.Interfaces.ASTNode;
 import java.util.ArrayList;
 
 public class Program implements ASTNode{

@@ -17,14 +17,15 @@ import Lexer.Lexer;
 import Lexer.MingolToken;
 import Lexer.Token;
 import Parser.Expression;
+import Parser.ExpressionStatement;
 import Parser.Identifier;
+import Parser.Integral;
 import Parser.LetStatement;
 import Parser.Statement;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -47,7 +48,49 @@ public class Tarea2 {
         // } catch (IOException e) {
         //     System.out.println(e.getMessage());
         // }
-        ASTTestLet();
+        TestIntegerExpression();
+    }
+
+    private static void TestProgramStatements(Parser parser, Program program, Integer expectedStatementCount) {
+        expectedStatementCount = expectedStatementCount != null ? expectedStatementCount : 1;
+
+        assert parser.GetErrors().size() == 0 : "El parser tiene errores.";
+        assert program.statements.size() == expectedStatementCount : 
+                "La cantidad de statements es diferente a la esperada";
+        assert program.statements.get(0) instanceof ExpressionStatement : 
+                "El primer statement no es un ExpressionStatement";
+    }
+    
+    private static void TestLiteralExpression(Expression expression, Object expectedValue){
+        if(expectedValue instanceof String){
+            TestIdentifier(expression, expectedValue);
+        }
+        else if(expectedValue instanceof Integer){
+            TestInteger(expression, expectedValue);
+        }
+        else{
+            System.err.println("Tipo de elemento no soportado, se obtuvo: " + expectedValue.getClass().getSimpleName());
+        }
+    }
+    
+    private static void TestIdentifier(Expression expression, Object expectedValue){
+        assert expression instanceof Identifier :
+                "La expresion no es un Identifier";
+        Identifier identifier = (Identifier) expression;
+        assert identifier.getValue().equals(expectedValue) :
+                "El valor del identifier no coincide con el valor esperado";
+        assert identifier.getToken().getLiteral().equals(expectedValue):
+                "La literal del identifier no coincide con el valor esperado";
+    }
+    
+    private static void TestInteger(Expression expression, Object expectedValue){
+        assert expression instanceof Integral:
+                "La expresion no es un Integer";
+        Integral integral = (Integral) expression;
+        assert integral.getValue() == (Integer)expectedValue:
+                "El valor del integer no coincide con el valor esperado";
+        assert integral.getToken().getLiteral().equals(expectedValue.toString()):
+                "La literal del integer no coincide con el valor esperado";
     }
 
     private static boolean TestTarea(String archivoOriginal) throws IOException {
@@ -245,7 +288,7 @@ public class Tarea2 {
         ));
         System.out.println(program.Str());
     }
-    
+
     private static void ASTTestReturn() {
         Program program = new Program(new ArrayList<Statement>(
                 Arrays.asList(
@@ -259,5 +302,32 @@ public class Tarea2 {
                 )
         ));
         System.out.println(program.Str());
+    }
+
+    private static void TestIdentifierExpression() {
+        String source = "foobar;";
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
+
+        TestProgramStatements(parser, program, null);
+        ExpressionStatement expressionStatement = (ExpressionStatement) program.statements.get(0);
+        
+        assert expressionStatement.getExpression() != null:
+                "La expresion es nula";
+        TestLiteralExpression(expressionStatement.getExpression(), "foobar");
+    }
+    
+    private static void TestIntegerExpression(){
+        String source = "5;";
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
+        
+        TestProgramStatements(parser, program, null);
+        ExpressionStatement expressionStatement = (ExpressionStatement) program.statements.get(0);
+        assert expressionStatement != null :
+                "La expresion es nula";
+        TestLiteralExpression(expressionStatement.getExpression(), 5);
     }
 }

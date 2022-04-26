@@ -60,6 +60,9 @@ public class Token {
         keywords.put("THEN", MingolToken.THEN);
         keywords.put("TO", MingolToken.TO);
         keywords.put("TRUE", MingolToken.TRUE);
+        
+        //ALGOL TOKENS
+        
 
         MingolToken elToken = (MingolToken) keywords.get(literal);
         if (elToken != null) {

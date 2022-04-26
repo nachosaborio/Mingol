@@ -12,6 +12,14 @@ public class Identifier extends Expression{
         this.value = value;
     }
 
+    public Token getToken() {
+        return token;
+    }
+
+    public String getValue() {
+        return value;
+    }
+    
     @Override
     public String Str() {
         return value;
