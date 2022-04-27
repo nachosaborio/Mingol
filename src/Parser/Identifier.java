@@ -21,7 +21,7 @@ public class Identifier extends Expression{
     }
     
     @Override
-    public String Str() {
+    public String toString() {
         return value;
     }
 }

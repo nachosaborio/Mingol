@@ -22,10 +22,10 @@ public class Program implements ASTNode{
     }
 
     @Override
-    public String Str() {
+    public String toString() {
         String strings = "";
         for(Statement statement : statements){
-            strings += statements.toString();
+            strings += statement.toString();
         }
         return strings;
     }

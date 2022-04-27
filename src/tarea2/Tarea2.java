@@ -16,6 +16,7 @@ import Parser.Program;
 import Lexer.Lexer;
 import Lexer.MingolToken;
 import Lexer.Token;
+import Parser.Booleano;
 import Parser.Expression;
 import Parser.ExpressionStatement;
 import Parser.Identifier;
@@ -31,7 +32,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 
 public class Tarea2 {
 
@@ -52,7 +52,7 @@ public class Tarea2 {
         // } catch (IOException e) {
         //     System.out.println(e.getMessage());
         // }
-        TestInfixOperator();
+        TestOperatorPrecedence();
     }
 
     private static void TestProgramStatements(Parser parser, Program program, Integer expectedStatementCount) {
@@ -76,6 +76,9 @@ public class Tarea2 {
         else if(expectedValue instanceof Integer){
             TestInteger(expression, expectedValue);
         }
+        else if(expectedValue instanceof Boolean){
+            TestBoolean(expression, expectedValue);
+        }
         else{
             System.err.println("Tipo de elemento no soportado, se obtuvo: " + expectedValue.getClass().getSimpleName());
         }
@@ -87,7 +90,7 @@ public class Tarea2 {
         Identifier identifier = (Identifier) expression;
         assert identifier.getValue().equals(expectedValue) :
                 "El valor del identifier no coincide con el valor esperado";
-        assert identifier.getToken().getLiteral().equals(expectedValue):
+        assert identifier.TokenLiteral().equals(expectedValue):
                 "La literal del identifier no coincide con el valor esperado";
     }
     
@@ -99,6 +102,25 @@ public class Tarea2 {
                 "El valor del integer no coincide con el valor esperado";
         assert integral.getToken().getLiteral().equals(expectedValue.toString()):
                 "La literal del integer no coincide con el valor esperado";
+    }
+    
+    private static void TestBoolean(Expression expression, Object expectedValue){
+        assert expression instanceof Booleano:
+                "La expresion no es un booleano";
+        
+        Booleano booleano = (Booleano) expression;
+        
+        assert booleano.getValue() == (Boolean) expectedValue:
+                "El valor del booleano no coincide con el valor esperado";
+        
+        if((Boolean)expectedValue == true){
+            assert booleano.TokenLiteral().equals("TRUE"):
+                "La literal del booleano no coincide con el valor esperado";
+        }
+        else{
+            assert booleano.TokenLiteral().equals("FALSE"):
+                "La literal del booleano no coincide con el valor esperado";
+        }
     }
     
     private static void TestInfixExpression(Expression expression, Object expectedLeft, 
@@ -305,7 +327,7 @@ public class Tarea2 {
                         )
                 )
         ));
-        System.out.println(program.Str());
+        System.out.println(program.toString());
     }
 
     private static void ASTTestReturn() {
@@ -320,7 +342,7 @@ public class Tarea2 {
                         )
                 )
         ));
-        System.out.println(program.Str());
+        System.out.println(program.toString());
     }
 
     private static void TestIdentifierExpression() {
@@ -406,16 +428,61 @@ public class Tarea2 {
         expectedOperatorsAndValues.add(new Triple<>(5,"=",5));
         expectedOperatorsAndValues.add(new Triple<>(5,"/=",5));
         
-        for(int i = 0; i < 8; i++){
+        for(int i = 0; i < 1; i++){
             int expectedLeft = expectedOperatorsAndValues.get(i).getFirst();
             String expectedOperator = expectedOperatorsAndValues.get(i).getSecond();
             int expectedRight = expectedOperatorsAndValues.get(i).getThird();
             ExpressionStatement statement = (ExpressionStatement) program.statements.get(i);
             
-            assert statement.getExpression() != null;
+            assert statement.getExpression() != null:
+                    "La expresión es null";
             
             assert statement.getExpression() instanceof Infix:
                     "la expresion no es un prefijo";
+        }
+    }
+    
+    private static void TestBooleanExpression(){
+        String source = "TRUE;FALSE;";
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
+        
+        TestProgramStatements(parser, program, 2);
+        boolean[] expectedValues = {true,false};
+        
+        for(int i = 0; i < 2; i++){
+            ExpressionStatement statement = (ExpressionStatement) program.statements.get(i);
+            boolean expectedValue = expectedValues[i];
+            
+            assert statement.getExpression() != null:
+                    "La expresión es null";
+            TestLiteralExpression(statement.getExpression(), expectedValue);
+            
+        }
+    }
+    
+    private static void TestOperatorPrecedence(){
+        ArrayList<Triple<String, String, Integer>> testSources = 
+                new ArrayList<Triple<String, String, Integer>>();
+        testSources.add(new Triple<>("-a * b;","((-a)*b)",1));
+        testSources.add(new Triple<>("!-a;","(!(-a))",1));
+        testSources.add(new Triple<>("a + b / c","(a+(b/c))",1));
+        testSources.add(new Triple<>("3 + 4; -5 * 5;","(3+4)((-5)*5)",2));
+        testSources.add(new Triple<>("1 + (2 + 3) + 4;","((1+(2+3))+4)",1));
+        testSources.add(new Triple<>("(5 + 5) * 2;","((5+5)*2)",1));
+        testSources.add(new Triple<>("-(5 + 5);","(-(5+5))",1));
+        testSources.add(new Triple<>("-(5 + 5);","(-(5+5))",1));
+        
+        for(Triple<String, String, Integer> triple: testSources){
+            Lexer lexer = new Lexer(triple.getFirst());
+            Parser parser = new Parser(lexer);
+            Program program = parser.ParseProgram();
+            
+            TestProgramStatements(parser, program, triple.getThird());
+            String value =  program.toString();
+            assert program.toString().equals(triple.getSecond()):
+                    "El resultado no es el mismo";
         }
     }
 }

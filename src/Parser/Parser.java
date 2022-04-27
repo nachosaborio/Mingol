@@ -163,6 +163,7 @@ public class Parser {
         while((peekToken.getTokenType() != MingolToken.SEMICOLON) 
                 && (precedence.ordinal() < PeekPrecedence().ordinal())){
             IInfixParseFn infixParseFn = infixParseFns.get(peekToken.getTokenType());
+            
             if(infixParseFn == null){
                 return leftExpression;
             }
@@ -237,6 +238,30 @@ public class Parser {
                 return prefixExpression;
             }
         };
+        
+        //Parse boolean
+        IPrefixParseFn ParseBoolean = new IPrefixParseFn() {
+            @Override
+            public Expression Function() {
+                assert currentToken != null:
+                        "El current token es null";
+                return new Booleano(currentToken, currentToken.getTokenType() == MingolToken.TRUE);
+            }
+        };
+        
+        //Parse grouped expression
+        IPrefixParseFn ParseGroupedExpression = new IPrefixParseFn() {
+            @Override
+            public Expression Function() {
+                AdvanceToken();
+                Expression expression = ParseExpression(Precedence.LOWEST);
+                
+                if(!ExpectedToken(MingolToken.RPAREN)){
+                    return null;
+                }
+                return expression;
+            }
+        };
 
         //Se agregan las funciones
         HashMap<MingolToken, IPrefixParseFn> functions = new HashMap<MingolToken, IPrefixParseFn>();
@@ -244,6 +269,9 @@ public class Parser {
         functions.put(MingolToken.INTEGER, ParseInteger);
         functions.put(MingolToken.SUBSTRACTION, ParsePrefixExpressions);
         functions.put(MingolToken.NEGATION, ParsePrefixExpressions);
+        functions.put(MingolToken.TRUE, ParseBoolean);
+        functions.put(MingolToken.FALSE, ParseBoolean);
+        functions.put(MingolToken.LPAREN,ParseGroupedExpression);
         return functions;
     }
 

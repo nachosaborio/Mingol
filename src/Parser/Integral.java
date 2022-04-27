@@ -34,7 +34,7 @@ public class Integral extends Expression{
     
     
     @Override
-    public String Str() {
+    public String toString() {
         return value.toString();
     }
 }

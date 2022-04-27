@@ -35,7 +35,7 @@ public class Prefix extends Expression{
     
     
     @Override
-    public String Str() {
-        return String.format("(%1$s %2$s)" ,operator, right.toString()) ;
+    public String toString() {
+        return String.format("(%1$s%2$s)" ,operator, right.toString()) ;
     }
 }

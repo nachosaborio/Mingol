@@ -43,7 +43,7 @@ public class Infix extends Expression{
     }
     
     @Override
-    public String Str() {
-        return String.format("(%1$s %2$s %3$s)" ,operator, left.toString(), right.toString()) ;
+    public String toString() {
+        return String.format("(%1$s%2$s%3$s)" , left.toString(), operator, right.toString()) ;
     }
 }

@@ -16,7 +16,7 @@ public class Statement implements ASTNode{
     }
 
     @Override
-    public String Str() {
+    public String toString() {
         return token.getTokenType().toString();
     }
 }

@@ -35,7 +35,7 @@ public class LetStatement extends Statement{
     }
 
     @Override
-    public String Str() {
-        return String.format("%1$s %2$s = %3$s" , TokenLiteral(), name.Str(), value) ;
+    public String toString() {
+        return String.format("%1$s %2$s = %3$s" , TokenLiteral(), name.toString(), value) ;
     }
 }

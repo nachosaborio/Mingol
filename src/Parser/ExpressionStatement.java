@@ -24,7 +24,7 @@ public class ExpressionStatement extends Statement{
     }
     
     @Override
-    public String Str() {
+    public String toString() {
         return expression.toString();
     }
 }

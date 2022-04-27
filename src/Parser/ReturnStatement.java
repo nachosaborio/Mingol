@@ -15,7 +15,7 @@ public class ReturnStatement extends Statement{
     }
     
     @Override
-    public String Str() {
-        return String.format("%1$s %2$s" , TokenLiteral(), returnValue.Str()) ;
+    public String toString() {
+        return String.format("%1$s %2$s" , TokenLiteral(), returnValue.toString()) ;
     }
 }

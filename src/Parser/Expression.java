@@ -15,9 +15,4 @@ public class Expression implements ASTNode{
     public String TokenLiteral() {
         return token.getLiteral();
     }
-
-    @Override
-    public String Str() {
-        return "";
-    }
 }
