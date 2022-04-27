@@ -19,8 +19,10 @@ import Lexer.Token;
 import Parser.Expression;
 import Parser.ExpressionStatement;
 import Parser.Identifier;
+import Parser.Infix;
 import Parser.Integral;
 import Parser.LetStatement;
+import Parser.Prefix;
 import Parser.Statement;
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -28,6 +30,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
 
 public class Tarea2 {
 
@@ -48,11 +52,15 @@ public class Tarea2 {
         // } catch (IOException e) {
         //     System.out.println(e.getMessage());
         // }
-        TestIntegerExpression();
+        TestInfixOperator();
     }
 
     private static void TestProgramStatements(Parser parser, Program program, Integer expectedStatementCount) {
         expectedStatementCount = expectedStatementCount != null ? expectedStatementCount : 1;
+        
+        if(parser.GetErrors().size() > 0){
+            System.out.println(parser.GetErrors());
+        }
 
         assert parser.GetErrors().size() == 0 : "El parser tiene errores.";
         assert program.statements.size() == expectedStatementCount : 
@@ -91,6 +99,17 @@ public class Tarea2 {
                 "El valor del integer no coincide con el valor esperado";
         assert integral.getToken().getLiteral().equals(expectedValue.toString()):
                 "La literal del integer no coincide con el valor esperado";
+    }
+    
+    private static void TestInfixExpression(Expression expression, Object expectedLeft, 
+            String expectedOperator, Object expectedRight){
+        Infix infix = (Infix) expression;
+        
+        assert infix.getLeft() != null;
+        TestLiteralExpression(infix.getLeft(), expectedLeft);
+        
+        assert infix.getOperator() == expectedOperator;
+        assert infix.getRight() != null;
     }
 
     private static boolean TestTarea(String archivoOriginal) throws IOException {
@@ -329,5 +348,74 @@ public class Tarea2 {
         assert expressionStatement != null :
                 "La expresion es nula";
         TestLiteralExpression(expressionStatement.getExpression(), 5);
+    }
+    
+    private static void TestPrefixExpression(){
+        String source = "!5;-15;";
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
+        TestProgramStatements(parser, program, 2);
+        
+        HashMap<String, Integer> mapa = new HashMap<String, Integer>();
+        mapa.put("!", 5);
+        mapa.put("-", 15);
+        for(int i = 0; i < 2; i++){
+            Object key = mapa.keySet().toArray()[i];
+            String expectedOperator = key.toString();
+            int expectedValue = mapa.get(key);
+            ExpressionStatement statement = (ExpressionStatement)program.statements.get(i);
+            
+            assert statement.getExpression() instanceof Prefix:
+                    "la expresion no es un prefijo";
+            
+            Prefix prefix = (Prefix) statement.getExpression();
+            
+            assert prefix.getOperator().equals(expectedOperator):
+                    "el prefijo no es igual al operador esperado";
+            assert prefix.getRight() != null:
+                    "la derecha es nula";
+            TestLiteralExpression(prefix.getRight(), expectedValue);
+        }
+    }
+    
+    private static void TestInfixOperator(){
+        String source = 
+                "5 + 5;"
+                + "5 - 5;"
+                + "5 * 5;"
+                + "5 / 5;"
+                + "5 > 5;"
+                + "5 < 5;"
+                + "5 = 5;"
+                + "5 /= 5;";
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
+        
+        TestProgramStatements(parser, program, 8);
+        ArrayList<Triple<Integer, String, Integer>> expectedOperatorsAndValues 
+                = new ArrayList<Triple<Integer, String, Integer>>();
+        
+        expectedOperatorsAndValues.add(new Triple<>(5,"+",5));
+        expectedOperatorsAndValues.add(new Triple<>(5,"-",5));
+        expectedOperatorsAndValues.add(new Triple<>(5,"*",5));
+        expectedOperatorsAndValues.add(new Triple<>(5,"/",5));
+        expectedOperatorsAndValues.add(new Triple<>(5,">",5));
+        expectedOperatorsAndValues.add(new Triple<>(5,"<",5));
+        expectedOperatorsAndValues.add(new Triple<>(5,"=",5));
+        expectedOperatorsAndValues.add(new Triple<>(5,"/=",5));
+        
+        for(int i = 0; i < 8; i++){
+            int expectedLeft = expectedOperatorsAndValues.get(i).getFirst();
+            String expectedOperator = expectedOperatorsAndValues.get(i).getSecond();
+            int expectedRight = expectedOperatorsAndValues.get(i).getThird();
+            ExpressionStatement statement = (ExpressionStatement) program.statements.get(i);
+            
+            assert statement.getExpression() != null;
+            
+            assert statement.getExpression() instanceof Infix:
+                    "la expresion no es un prefijo";
+        }
     }
 }

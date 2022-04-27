@@ -34,6 +34,7 @@ public enum MingolToken {
     LT,//
     MULTIPLICATION,//
     NE,//
+    NEGATION,
     OD,//
     PRINT,
     READ,

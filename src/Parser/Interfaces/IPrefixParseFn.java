@@ -1,10 +1,7 @@
 package Parser.Interfaces;
 
-import Lexer.Token;
 import Parser.Expression;
 
-public abstract class IPrefixParseFn {
-    
-    abstract public void setCurrentToken(Token currentToken);
+public interface IPrefixParseFn {
     abstract public Expression Function();
 }

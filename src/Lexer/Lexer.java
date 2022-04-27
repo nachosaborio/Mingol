@@ -154,6 +154,9 @@ public class Lexer {
             case "#":
                 token = new Token(MingolToken.COMMENT, character);
                 break;
+            case "!":
+                token = new Token(MingolToken.NEGATION, character);
+                break;
             default:
                 if (IsLetter(character)) {
                     String literal = ReadIdentifier();
