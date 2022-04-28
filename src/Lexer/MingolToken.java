@@ -22,7 +22,7 @@ public enum MingolToken {
     FOR,//
     FROM,//
     GE,//
-    GOTO,//
+    //GOTO,//
     GT,//
     IDENT,//
     IF,//
@@ -35,14 +35,15 @@ public enum MingolToken {
     MULTIPLICATION,//
     NE,//
     NEGATION,
+    NEWLINE,
     OD,//
-    PRINT,
-    READ,
+    //PRINT,
+    //READ,
     REAL,//
     RETURN,//
     RPAREN,//
     SEMICOLON,//
-    SKIP,//
+    //SKIP,//
     //STREQ,
     //STRGE,
     //STRGT,

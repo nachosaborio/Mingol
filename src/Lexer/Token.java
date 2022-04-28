@@ -43,7 +43,7 @@ public class Token {
         keywords.put("FOR", MingolToken.FOR);
         keywords.put("FROM", MingolToken.FROM);
         keywords.put("GE", MingolToken.GE);
-        keywords.put("GOTO", MingolToken.GOTO);
+        //keywords.put("GOTO", MingolToken.GOTO);
         keywords.put("GT", MingolToken.GT);
         keywords.put("IF", MingolToken.IF);
         keywords.put("INT", MingolToken.TYPEINT);
@@ -51,16 +51,16 @@ public class Token {
         keywords.put("LT", MingolToken.LT);
         keywords.put("NE", MingolToken.NE);
         keywords.put("OD", MingolToken.OD);
-        keywords.put("print", MingolToken.PRINT);
-        keywords.put("read", MingolToken.READ);
+        //keywords.put("print", MingolToken.PRINT);
+        //keywords.put("read", MingolToken.READ);
         keywords.put("REAL", MingolToken.TYPEREAL);
         keywords.put("RETURN", MingolToken.RETURN);
-        keywords.put("SKIP", MingolToken.SKIP);
+        //keywords.put("SKIP", MingolToken.SKIP);
         keywords.put("STRING", MingolToken.TYPESTRING);
         keywords.put("THEN", MingolToken.THEN);
         keywords.put("TO", MingolToken.TO);
         keywords.put("TRUE", MingolToken.TRUE);
-        
+//        keywords.put("newline", MingolToken.NEWLINE);
         //ALGOL TOKENS
         
 

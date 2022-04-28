@@ -34,6 +34,14 @@ public class LetStatement extends Statement{
         this.value = value;
     }
 
+    public Identifier getName() {
+        return name;
+    }
+
+    public Expression getValue() {
+        return value;
+    }
+
     @Override
     public String toString() {
         return String.format("%1$s %2$s = %3$s" , TokenLiteral(), name.toString(), value) ;
