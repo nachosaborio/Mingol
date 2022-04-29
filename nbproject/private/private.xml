@@ -3,11 +3,10 @@
     <editor-bookmarks xmlns="http://www.netbeans.org/ns/editor-bookmarks/2" lastBookmarkId="0"/>
     <open-files xmlns="http://www.netbeans.org/ns/projectui-open-files/2">
         <group>
-            <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Evaluador/Logico.java</file>
+            <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Parser/Parser.java</file>
             <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/tarea2/Tarea2.java</file>
-            <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Evaluador/Nulo.java</file>
-            <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Evaluador/Entero.java</file>
             <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Evaluador/Evaluator.java</file>
+            <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Lexer/Lexer.java</file>
         </group>
     </open-files>
 </project-private>

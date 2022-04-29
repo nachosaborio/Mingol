@@ -356,9 +356,9 @@ public class Parser {
                 }
                 
                 //TODO Revisar que antes del FI no tenga punto y coma
-                if (! !ExpectedToken(MingolToken.FI)) {
-                    return null;
-                }
+//                if (! !ExpectedToken(MingolToken.FI)) {
+//                    return null;
+//                }
                 
                 return ifExpression;
             }

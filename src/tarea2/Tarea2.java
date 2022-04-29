@@ -13,6 +13,8 @@ package tarea2;
 
 import Evaluador.Entero;
 import Evaluador.Evaluator;
+import Evaluador.Logico;
+import Evaluador.ObjectType;
 import Evaluador.Objeto;
 import Parser.Parser;
 import Parser.Program;
@@ -60,7 +62,8 @@ public class Tarea2 {
         // } catch (IOException e) {
         //     System.out.println(e.getMessage());
         // }
-        TestIntegerEvaluator();
+        //TestIfElseEvaluator();
+        REPL();
     }
 
     private static void REPL(){
@@ -85,7 +88,13 @@ public class Tarea2 {
                 PrintParseErrors(parser.GetErrors());
                 continue;
             }
-            System.out.println(program.toString());
+            
+            Objeto evaluated = Evaluator.Evaluate(program);
+            
+            if(evaluated != null){
+                System.out.println(evaluated.Inspect());
+            }
+            //System.out.println(program.toString());
         }
     }
     
@@ -186,6 +195,18 @@ public class Tarea2 {
         Entero entero = (Entero) evaluated;
         assert entero.getValue() == expected:
                 "No son iguales";
+    }
+    
+    private static void EvaluateBooleanObject(Objeto evaluated, boolean expected){
+        assert evaluated instanceof Logico:
+                "No es un booleano";
+        Logico logico = (Logico) evaluated;
+        assert logico.getValue() == expected:
+                "No son iguales";
+    }
+    
+    private static void TestNullObject(Objeto evaluated){
+        assert evaluated.equals(Evaluator.NULL);
     }
 
     private static boolean TestTarea(String archivoOriginal) throws IOException {
@@ -631,10 +652,85 @@ public class Tarea2 {
         HashMap<String, Integer> tests = new HashMap<String, Integer>();
         tests.put("5", 5);
         tests.put("10", 10);
+        tests.put("-5", -5);
+        tests.put("-10", -10);
+        tests.put("5 + 5", 10);
+        tests.put("5 - 10", -5);
+        tests.put("2 * 2 * 2 * 2", 16);
+        tests.put("2 * 5 - 3", 7);
+        tests.put("50 / 2", 25);
+        tests.put("2 * (5 - 3)", 4);
+        tests.put("(2 + 7) / 3", 3);
+        tests.put("50 / 2 * 2 + 10", 60);
+        tests.put("5 / 2", 2);
         
         for(Map.Entry<String,Integer> entry : tests.entrySet()){
             Objeto evaluated = EvaluateTests(entry.getKey());
             TestIntegerObject(evaluated, entry.getValue());
+        }
+    }
+    
+    private static void TestBooleanEvaluator(){
+        var tests = new HashMap<String, Boolean>();
+        tests.put("TRUE", true);
+        tests.put("FALSE", false);
+        tests.put("1 < 2", true);
+        tests.put("1 > 2", false); 
+        tests.put("1 < 1", false);
+        tests.put("1 > 1", false);
+        tests.put("1 = 1", true);
+        tests.put("1 /= 1", false);
+        tests.put("1 /= 2", true);
+        tests.put("TRUE = TRUE", true);
+        tests.put("FALSE = FALSE", true);
+        tests.put("TRUE = FALSE", false);
+        tests.put("TRUE /= FALSE", true);
+        tests.put("(1 < 2) = TRUE", true);
+        tests.put("(1 < 2) = FALSE", false);
+        tests.put("(1 > 2) = TRUE", false);
+        tests.put("(1 > 2) = FALSE", true);
+        
+        for(Map.Entry<String, Boolean> entry : tests.entrySet()){
+            Objeto evaluated = EvaluateTests(entry.getKey());
+            
+            EvaluateBooleanObject(evaluated, entry.getValue());
+        }
+    }
+    
+    private static void TestBangOperator(){
+        var tests = new HashMap<String, Boolean>();
+        tests.put("!TRUE", false);
+        tests.put("!FALSE", true);
+        tests.put("!!TRUE", true);
+        tests.put("!!FALSE", false);
+        
+        for(Map.Entry<String, Boolean> entry : tests.entrySet()){
+            Objeto evaluated = EvaluateTests(entry.getKey());
+            
+            EvaluateBooleanObject(evaluated, entry.getValue());
+        }
+    }
+    
+    private static void TestIfElseEvaluator(){
+        var tests = new HashMap<String, Integer>();
+        tests.put("IF(TRUE) THEN 10 FI", 10);
+        tests.put("IF(FALSE) THEN 10 FI", null);
+        tests.put("IF(1 < 2) THEN 10 FI", 10);
+        tests.put("IF(1 > 2) THEN 10 FI", null); 
+        tests.put("IF(1 < 2) THEN 10 ELSE 20 FI", 10);
+        tests.put("IF(1 > 2) THEN 10 ELSE 20 FI", 20);
+        
+        for(Map.Entry<String, Integer> entry : tests.entrySet()){
+            String source = entry.getKey();
+            Integer expected = entry.getValue();
+            Objeto evaluated = EvaluateTests(source);
+            
+            if(expected != null){
+                TestIntegerObject(evaluated, expected);
+            }
+            else{
+                TestNullObject(evaluated);
+            }
         }
     }
 }

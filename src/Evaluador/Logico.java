@@ -7,7 +7,7 @@ public class Logico implements Objeto{
         this.value = value;
     }
 
-    public boolean isValue() {
+    public boolean getValue() {
         return value;
     }
     
