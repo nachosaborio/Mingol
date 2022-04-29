@@ -11,6 +11,9 @@
 //PRIMER CUATRIMESTRE, 2022
 package tarea2;
 
+import Evaluador.Entero;
+import Evaluador.Evaluator;
+import Evaluador.Objeto;
 import Parser.Parser;
 import Parser.Program;
 import Lexer.Lexer;
@@ -35,6 +38,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
 
 public class Tarea2 {
 
@@ -55,9 +60,41 @@ public class Tarea2 {
         // } catch (IOException e) {
         //     System.out.println(e.getMessage());
         // }
-        TestLetStatement();
+        TestIntegerEvaluator();
     }
 
+    private static void REPL(){
+        Scanner scanner = new Scanner(System.in);
+        //String line = "";
+        String source = "";
+        
+        while(!source.equals("END")){
+            System.out.print(">>");
+            source = scanner.nextLine();
+            //line = scanner.nextLine();
+            //source += "\n" + line;
+            
+            Lexer lexer = new Lexer(source);
+            Parser parser = new Parser(lexer);
+            Program program = parser.ParseProgram();
+            
+            if(source.equals("END")){
+                continue;
+            }
+            if(parser.GetErrors().size() > 0){
+                PrintParseErrors(parser.GetErrors());
+                continue;
+            }
+            System.out.println(program.toString());
+        }
+    }
+    
+    private static void PrintParseErrors(ArrayList<String> errors){
+        for(String error : errors){
+            System.out.println(error);
+        }
+    }
+    
     private static void TestProgramStatements(Parser parser, Program program, Integer expectedStatementCount) {
         expectedStatementCount = expectedStatementCount != null ? expectedStatementCount : 1;
 
@@ -133,6 +170,22 @@ public class Tarea2 {
         assert infix.getOperator().equals(expectedOperator) :
                 "el operador no es igual al operador esperado";
         assert infix.getRight() != null;
+    }
+    
+    private static Objeto EvaluateTests(String source){
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
+        
+        return Evaluator.Evaluate(program);
+    }
+    
+    private static void TestIntegerObject(Objeto evaluated, int expected){
+        assert evaluated instanceof Entero:
+                "No es un entero";
+        Entero entero = (Entero) evaluated;
+        assert entero.getValue() == expected:
+                "No son iguales";
     }
 
     private static boolean TestTarea(String archivoOriginal) throws IOException {
@@ -574,5 +627,14 @@ public class Tarea2 {
         }
     }
     
-    
+    private static void TestIntegerEvaluator(){
+        HashMap<String, Integer> tests = new HashMap<String, Integer>();
+        tests.put("5", 5);
+        tests.put("10", 10);
+        
+        for(Map.Entry<String,Integer> entry : tests.entrySet()){
+            Objeto evaluated = EvaluateTests(entry.getKey());
+            TestIntegerObject(evaluated, entry.getValue());
+        }
+    }
 }
