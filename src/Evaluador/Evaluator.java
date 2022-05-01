@@ -1,16 +1,18 @@
 package Evaluador;
 
-import Lexer.MingolToken;
 import Parser.Block;
 import Parser.Booleano;
 import Parser.ExpressionStatement;
+import Parser.Identifier;
 import Parser.If;
 import Parser.Infix;
 import Parser.Integral;
 import Parser.Interfaces.ASTNode;
+import Parser.LetStatement;
 import Parser.Prefix;
 import Parser.Program;
 import Parser.Statement;
+import Parser.StringLiteral;
 import java.util.ArrayList;
 
 public class Evaluator {
@@ -18,20 +20,23 @@ public class Evaluator {
     public static final Logico TRUE = new Logico(true);
     public static final Logico FALSE = new Logico(false);
     public static final Nulo NULL = new Nulo();
+    private static String TypeMismatchError = "Discrepancia de tipos:";
+    private static String UnknownPrefixOperation = "Operador inválido:";
+    private static String UnknownIdentifier = "Identificador no encontrado:";
     
-    public static Objeto Evaluate(ASTNode node){
+    public static Objeto Evaluate(ASTNode node, Environment env){
         String className = node.getClass().getSimpleName();
         
         switch(className){
             case "Program":
                 Program program = (Program) node;
-                return EvaluateStatements(program.statements);
+                return EvaluateProgram(program, env);
             case "ExpressionStatement":
                 ExpressionStatement expression = (ExpressionStatement)node;
                 
                 assert expression.getExpression() != null:
                         "La expresion es nula";
-                return Evaluate(expression.getExpression());
+                return Evaluate(expression.getExpression(), env);
             case "Integral":
                 Integral integral = (Integral) node;
                 assert integral != null:
@@ -46,7 +51,7 @@ public class Evaluator {
                 Prefix prefix = (Prefix) node;
                 assert prefix.getRight() != null:
                         "La derecha es nula";
-                Objeto right = Evaluate(prefix.getRight());
+                Objeto right = Evaluate(prefix.getRight(),env);
                 assert right != null:
                         "Right es nulo";
                 return EvaluatePrefixExpression(prefix.getOperator(), right);
@@ -56,8 +61,8 @@ public class Evaluator {
                         "La izquierda es nula";
                 assert infix.getRight() != null:
                         "La derecha es nula";
-                Objeto left = Evaluate(infix.getLeft());
-                Objeto iright = Evaluate(infix.getRight());
+                Objeto left = Evaluate(infix.getLeft(),env);
+                Objeto iright = Evaluate(infix.getRight(),env);
                 assert left != null:
                         "La izquierda es nula";
                 assert iright != null:
@@ -65,19 +70,46 @@ public class Evaluator {
                 return EvaluateInfixExpression(infix.getOperator(),left, iright);
             case "Block":
                 Block block = (Block) node;
-                return EvaluateStatements(block.getStatements());
+                return EvaluateStatements(block.getStatements(),env);
             case "If":
                 If si = (If) node;
-                return EvaluateIfExpression(si);
-            default:
-                return null;
+                return EvaluateIfExpression(si,env);
+            case "LetStatement":
+                LetStatement let = (LetStatement)node;
+                assert let != null:
+                        "El identificador es nulo";
+                Objeto value = Evaluate(let.getValue(),env);
+                assert let.getName() != null:
+                        "El nombre del identificador es nulo";
+                env.put(let.getName().getValue(), value);
+                break;
+            case "Identifier":
+                Identifier identifier = (Identifier) node;
+                return EvaluateIdentifier(identifier, env);
+            case "Call":
+                break;
+            case "StringLiteral":
+                StringLiteral str = (StringLiteral) node;
+                return new Cadena(str.getValue());
         }
+        return null;
     }
     
-    private static Objeto EvaluateStatements(ArrayList<Statement> statements){
+    private static Objeto EvaluateProgram(Program program, Environment env){
+        Objeto result = null;
+        for (Statement statement : program.statements){
+             result = Evaluate(statement, env);
+            if(result instanceof Errado){
+                return result;
+            }
+        }
+        return result;
+    }
+    
+    private static Objeto EvaluateStatements(ArrayList<Statement> statements, Environment env){
         Objeto result = null;
         for(Statement statement : statements){
-            result = Evaluate(statement);
+            result = Evaluate(statement, env);
         }
         return result;
     }
@@ -87,13 +119,14 @@ public class Evaluator {
     }
     
     private static Objeto EvaluatePrefixExpression(String operator, Objeto right){
+        
         switch(operator){
             case "!":
                 return EvaluateBangOperatorExpression(right);
             case "-":
                 return EvaluateMinusOperatorExpression(right);
             default:
-                return NULL;
+                return NewError(UnknownPrefixOperation, new String[] {operator, right.Type().toString()});
         }
     }
     
@@ -114,7 +147,7 @@ public class Evaluator {
     
     private static Objeto EvaluateMinusOperatorExpression(Objeto right){
         if(!(right instanceof Entero)){
-            return NULL;
+            return NewError(UnknownPrefixOperation, new String[] {"-", right.Type().toString()});
         }
         else{
             Entero entero = (Entero) right;
@@ -132,8 +165,11 @@ public class Evaluator {
         else if(operator.equals("/=") || operator.equals("NE")){
             return ToBooleanObject(left != right);
         }
+        else if(left.Type() != right.Type()){
+            return NewError(TypeMismatchError, new String[]{left.Type().toString(), operator, right.Type().toString()});
+        }
         else{
-            return NULL;
+            return NewError(UnknownPrefixOperation, new String[]{left.Type().toString(), operator, right.Type().toString()});
         }
     }
     
@@ -169,28 +205,36 @@ public class Evaluator {
             case "<=":
                 return ToBooleanObject(leftValue <= rigthValue);
             default:
-                return NULL;
+                return NewError(UnknownPrefixOperation, new String[]{left.Type().toString(), operator, right.Type().toString()});
         }
     }
     
-    private static Objeto EvaluateIfExpression(If si){
+    private static Objeto EvaluateIfExpression(If si, Environment env){
         assert si != null:
                 "El if es nulo";
-        Objeto condition = Evaluate(si.getCondition());
+        Objeto condition = Evaluate(si.getCondition(), env);
         assert condition != null:
                 "La condicion es nula";
         
         if(IsTruthy(condition)){
             assert si.getConsequence() != null:
                     "La consecuencia es null";
-            return Evaluate(si.getConsequence());
+            return Evaluate(si.getConsequence(), env);
         }
         else if(si.getAlternative() != null){
-            return Evaluate(si.getAlternative());
+            return Evaluate(si.getAlternative(), env);
         }
         else{
             return NULL;
         }
+    }
+    
+    private static Objeto EvaluateIdentifier(Identifier identifier, Environment env){
+        Objeto result = (Objeto) env.get(identifier.getValue());
+        if(result == null){
+            return NewError(UnknownIdentifier, new String[]{identifier.getValue()});
+        }
+        return result;
     }
     
     private static boolean IsTruthy(Objeto obj){
@@ -204,5 +248,12 @@ public class Evaluator {
             return false;
         }
         return true;
+    }
+    
+    private static Errado NewError(String message, String[] args){
+        for(Object obj : args){
+            message += " " + obj.toString();
+        }
+        return new Errado(message);
     }
 }

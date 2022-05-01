@@ -102,6 +102,7 @@ public class Parser {
     }
 
     private LetStatement ParseLetStatement() {
+        //TODO permitir declarar y luego asignar
         assert currentToken != null :
                 "El current token es null";
         LetStatement letStatement = new LetStatement(currentToken);
@@ -363,6 +364,15 @@ public class Parser {
                 return ifExpression;
             }
         };
+        
+        IPrefixParseFn ParseStringLiteral = new IPrefixParseFn() {
+            @Override
+            public Expression Function() {
+                assert currentToken != null:
+                        "El current token es null";
+                return new StringLiteral(currentToken, currentToken.getLiteral());
+            }
+        };
 
         //Se agregan las funciones
         HashMap<MingolToken, IPrefixParseFn> functions = new HashMap<MingolToken, IPrefixParseFn>();
@@ -374,6 +384,7 @@ public class Parser {
         functions.put(MingolToken.FALSE, ParseBoolean);
         functions.put(MingolToken.LPAREN, ParseGroupedExpression);
         functions.put(MingolToken.IF, ParseIf);
+        functions.put(MingolToken.STRING, ParseStringLiteral);
         return functions;
     }
 

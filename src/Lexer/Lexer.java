@@ -79,6 +79,16 @@ public class Lexer {
         }
         return source.substring(initialPosition, position);
     }
+    
+    private String ReadString(){
+        ReadCharacter();
+        int initialPosition = position;
+        
+        while(!character.equals("\"") && readPosition <= source.length()){
+            ReadCharacter();
+        }
+        return source.substring(initialPosition, position);
+    }
 
     //Elimina los espacios en blanco
     private void SkipWhiteSpace() {
@@ -121,7 +131,6 @@ public class Lexer {
             case "*":
                 token = new Token(MingolToken.MULTIPLICATION, character);
                 break;
-//            case "\n":
             case "":
                 token = new Token(MingolToken.EOL, character);
                 break;
@@ -156,6 +165,10 @@ public class Lexer {
                 break;
             case "!":
                 token = new Token(MingolToken.NEGATION, character);
+                break;
+            case "\"":
+                String iliteral = ReadString();
+                token = new Token(MingolToken.STRING, iliteral);
                 break;
             default:
                 if (IsLetter(character)) {

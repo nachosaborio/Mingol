@@ -11,7 +11,10 @@
 //PRIMER CUATRIMESTRE, 2022
 package tarea2;
 
+import Evaluador.Cadena;
 import Evaluador.Entero;
+import Evaluador.Environment;
+import Evaluador.Errado;
 import Evaluador.Evaluator;
 import Evaluador.Logico;
 import Evaluador.ObjectType;
@@ -33,6 +36,7 @@ import Parser.Integral;
 import Parser.LetStatement;
 import Parser.Prefix;
 import Parser.Statement;
+import Parser.StringLiteral;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -40,8 +44,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+
+//TODO revisar qué pasa si 3 >
 
 public class Tarea2 {
 
@@ -62,11 +69,13 @@ public class Tarea2 {
         // } catch (IOException e) {
         //     System.out.println(e.getMessage());
         // }
-        //TestIfElseEvaluator();
+        //TestStringEvaluator();
         REPL();
     }
 
     private static void REPL(){
+        var scanned = new ArrayList<String>();
+        
         Scanner scanner = new Scanner(System.in);
         //String line = "";
         String source = "";
@@ -76,20 +85,23 @@ public class Tarea2 {
             source = scanner.nextLine();
             //line = scanner.nextLine();
             //source += "\n" + line;
+            scanned.add(source);
             
-            Lexer lexer = new Lexer(source);
+            Lexer lexer = new Lexer(String.join("", scanned));
             Parser parser = new Parser(lexer);
             Program program = parser.ParseProgram();
+            Environment env = new Environment();
             
             if(source.equals("END")){
                 continue;
             }
             if(parser.GetErrors().size() > 0){
                 PrintParseErrors(parser.GetErrors());
+                scanned.remove(scanned.size()-1);
                 continue;
             }
             
-            Objeto evaluated = Evaluator.Evaluate(program);
+            Objeto evaluated = Evaluator.Evaluate(program,env);
             
             if(evaluated != null){
                 System.out.println(evaluated.Inspect());
@@ -185,8 +197,14 @@ public class Tarea2 {
         Lexer lexer = new Lexer(source);
         Parser parser = new Parser(lexer);
         Program program = parser.ParseProgram();
+        Environment env = new Environment();
         
-        return Evaluator.Evaluate(program);
+        Objeto evaluated = Evaluator.Evaluate(program, env);
+        
+        assert evaluated != null:
+                "La evaluacion fue nula";
+        
+        return evaluated;
     }
     
     private static void TestIntegerObject(Objeto evaluated, int expected){
@@ -353,6 +371,54 @@ public class Tarea2 {
         } else {
             return false;
         }
+    }
+    
+    private static void TestString(){
+        String source = "\"foo\"; \"Platzi es la mejor escuela de CS\";";
+        Lexer lexer = new Lexer(source);
+        ArrayList<Token> tokens = new ArrayList<Token>();
+        
+        for(int i = 0; i < 4; i++){
+            tokens.add(lexer.NextToken());
+        }
+        
+        Token[] expectedTokens = {
+            new Token(MingolToken.STRING, "foo"),
+            new Token(MingolToken.SEMICOLON, ";"),
+            new Token(MingolToken.STRING, "Platzi es la mejor escuela de CS"),
+            new Token(MingolToken.SEMICOLON, ";")
+        };
+        
+        for(int i = 0; i < 4; i++){
+            assert tokens.get(i).Tuple().equals(expectedTokens[i].Tuple()):
+                    "Los tokens no coinciden";
+        }
+    }
+    
+    public static void TestStringLiteralExpression(){
+        String source = "\"Hello world!\"";
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
+        
+        ExpressionStatement expressionStatement = (ExpressionStatement) program.statements.get(0);
+        StringLiteral stringLiteral = (StringLiteral) expressionStatement.getExpression();
+        
+        assert stringLiteral instanceof StringLiteral:
+                "No es una instancia de string literal";
+        assert stringLiteral.getValue().equals("Hello world!"):
+                "El string no coincide";
+    }
+    
+    public static void TestStringEvaluator(){
+        String source = "\"Hello world\"";
+        String expected = "Hello world";
+        Objeto evaluated = EvaluateTests(source);
+        
+        assert evaluated instanceof Cadena:
+                "No es una cadena";
+        Cadena cadena = (Cadena) evaluated;
+        assert cadena.getValue().equals(expected);
     }
 
     private static void TestParser() {
@@ -731,6 +797,45 @@ public class Tarea2 {
             else{
                 TestNullObject(evaluated);
             }
+        }
+    }
+    
+    private static void TestErrorHandling(){
+        var tests = new HashMap<String, String>();
+        tests.put("5 + TRUE", "Discrepancia de tipos: INTEGERS + BOOLEAN");
+        tests.put("5 + TRUE; 9", "Discrepancia de tipos: INTEGERS + BOOLEAN");
+        tests.put("-TRUE", "Operador inválido: - BOOLEAN");
+        tests.put("TRUE + FALSE", "Operador inválido: BOOLEAN + BOOLEAN");
+        tests.put("5; TRUE - FALSE; 10;","Operador inválido: BOOLEAN - BOOLEAN");
+        tests.put("IF (10 > 7) THEN TRUE + FALSE FI;", "Operador inválido: BOOLEAN + BOOLEAN");
+        tests.put("IF (10 > 1) THEN IF (TRUE) THEN TRUE + FALSE FI; FI;", "Operador inválido: BOOLEAN + BOOLEAN");
+        tests.put("foobar", "Identificador no encontrado: foobar");
+        
+        for(Map.Entry<String, String> entry : tests.entrySet()){
+            String source = entry.getKey();
+            String expected = entry.getValue();
+            Objeto evaluated = EvaluateTests(source);
+            
+            assert evaluated instanceof Errado:
+                    "No es un error";
+            Errado error = (Errado) evaluated;
+            assert error.getMessage().equals(expected):
+                    "El error no es el esperado";
+        }
+    }
+    
+    private static void TestAssignmentEvaluator(){
+        var tests = new HashMap<String, Integer>();
+        tests.put("INT a := 5; a;", 5);
+        tests.put("INT a := 5; 5 * a;", 25);
+        tests.put("INT a := 5; INT b := a; b;",5);
+        tests.put("INT a := 5; INT b := a; INT c := a + b + 5;c;",15);
+        
+        for(Map.Entry<String, Integer> entry : tests.entrySet()){
+            String source = entry.getKey();
+            int expected = entry.getValue();
+            Objeto evaluated = EvaluateTests(source);
+            TestIntegerObject(evaluated, expected);
         }
     }
 }
