@@ -49,6 +49,8 @@ import java.util.Map;
 import java.util.Scanner;
 
 //TODO revisar qué pasa si 3 >
+//TODO implementar comentarios
+//TODO size = INT
 
 public class Tarea2 {
 
