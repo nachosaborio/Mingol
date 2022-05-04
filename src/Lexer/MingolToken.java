@@ -14,6 +14,7 @@ public enum MingolToken {
     DIVISION,//
     DO,//
     EOL,//
+    EOF,
     ELSE,//
     END,//
     EQ,//

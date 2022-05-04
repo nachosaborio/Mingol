@@ -17,13 +17,15 @@ import Parser.StringLiteral;
 import java.util.ArrayList;
 
 public class Evaluator {
-    
+    public static boolean hasErrors = false;
     public static final Logico TRUE = new Logico(true);
     public static final Logico FALSE = new Logico(false);
     public static final Nulo NULL = new Nulo();
-    private static String TypeMismatchError = "Discrepancia de tipos:";
-    private static String UnknownPrefixOperation = "Operador inválido:";
-    private static String UnknownIdentifier = "Identificador no encontrado:";
+    private static String TypeMismatchError = "\tError 301: Discrepancia de tipos:";
+    private static String UnknownPrefixOperation = "\tError 302: Operador inválido:";
+    private static String UnknownIdentifier = "\tError 303: Identificador no encontrado:";
+    private static String RepeatedIdentificator = "\tError 304: Identificador ya declarado:";
+    private static String AlreadyBegin = "\tError 305: No puede haber más de una sentencia BEGIN por archivo.";
     
     public static Objeto Evaluate(ASTNode node, Environment env){
         String className = node.getClass().getSimpleName();
@@ -32,6 +34,9 @@ public class Evaluator {
             case "Program":
                 Program program = (Program) node;
                 return EvaluateProgram(program, env);
+            case "Statement":
+                Statement statement = (Statement) node;
+                return EvaluateStatement(statement, env);
             case "ExpressionStatement":
                 ExpressionStatement expression = (ExpressionStatement)node;
                 
@@ -87,7 +92,13 @@ public class Evaluator {
                 Objeto value = Evaluate(let.getValue(),env);
                 assert let.getName() != null:
                         "El nombre del identificador es nulo";
-                env.put(let.getName().getValue(), value);
+                if(env.get(let.getName().getValue()) == null){
+                    env.put(let.getName().getValue(), value);
+                }
+                else{
+                    return NewError(RepeatedIdentificator, 
+                            new String[] {let.getName().getValue()});
+                }
                 break;
             case "Identifier":
                 Identifier identifier = (Identifier) node;
@@ -118,6 +129,20 @@ public class Evaluator {
             result = Evaluate(statement, env);
         }
         return result;
+    }
+    
+    private static Objeto EvaluateStatement(Statement statement, Environment env){
+        switch(statement.TokenLiteral()){
+            case "BEGIN":
+                if(env.get("BEGIN") == null){
+                    env.put("BEGIN", "BEGIN");
+                }
+                else{
+                    return NewError(AlreadyBegin, new String[]{});
+                }
+                break;
+        }
+        return null;
     }
     
     private static Logico ToBooleanObject(boolean value){
@@ -257,6 +282,7 @@ public class Evaluator {
     }
     
     private static Errado NewError(String message, String[] args){
+        hasErrors = true;
         for(Object obj : args){
             message += " " + obj.toString();
         }

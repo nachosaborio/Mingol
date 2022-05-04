@@ -132,10 +132,16 @@ public class Lexer {
                 if (PeekCharacter().equals("n")) {
                     token = MakeTwoCharacterToken(MingolToken.EOL);
                 }
+                else{
+                    token = MakeTwoCharacterToken(MingolToken.ILLEGAL);
+                }
+                break;
             case "*":
                 token = new Token(MingolToken.MULTIPLICATION, character);
                 break;
             case "":
+                token = new Token(MingolToken.EOF, character);
+                break;
             case "\n":
                 token = new Token(MingolToken.EOL, character);
                 break;

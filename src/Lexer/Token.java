@@ -50,6 +50,7 @@ public class Token {
         keywords.put("LE", MingolToken.LE);
         keywords.put("LT", MingolToken.LT);
         keywords.put("NE", MingolToken.NE);
+        keywords.put("newline", MingolToken.NEWLINE);
         keywords.put("OD", MingolToken.OD);
         keywords.put("print", MingolToken.PRINT);
         keywords.put("read", MingolToken.READ);
@@ -107,7 +108,7 @@ public class Token {
         keywords.put("PLUSAB",MingolToken.ALGOL);
         keywords.put("PLUSTO",MingolToken.ALGOL);
         keywords.put("PR",MingolToken.ALGOL);
-        keywords.put("PRAGMA",MingolToken.ALGOL);
+        keywords.put("PRAGMAT",MingolToken.ALGOL);
         keywords.put("PRELUDE",MingolToken.ALGOL);
         keywords.put("PRIO",MingolToken.ALGOL);
         keywords.put("PROC",MingolToken.ALGOL);
@@ -249,7 +250,6 @@ public class Token {
         keywords.put("pointer",MingolToken.ALGOL);
         keywords.put("possible",MingolToken.ALGOL);
         keywords.put("preemptive",MingolToken.ALGOL);
-        keywords.put("print",MingolToken.ALGOL);
         keywords.put("printf",MingolToken.ALGOL);
         keywords.put("punct",MingolToken.ALGOL);
         keywords.put("put",MingolToken.ALGOL);
@@ -257,7 +257,6 @@ public class Token {
         keywords.put("putf",MingolToken.ALGOL);
         keywords.put("qr",MingolToken.ALGOL);
         keywords.put("random",MingolToken.ALGOL);
-        keywords.put("read",MingolToken.ALGOL);
         keywords.put("rect",MingolToken.ALGOL);
         keywords.put("refresh",MingolToken.ALGOL);
         keywords.put("reidf",MingolToken.ALGOL);
