@@ -17,6 +17,7 @@ public enum MingolToken {
     ELSE,//
     END,//
     EQ,//
+    ETIQUETA,
     FALSE,//
     FI,//
     FOR,//

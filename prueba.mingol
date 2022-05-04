@@ -1,0 +1,63 @@
+BEGIN
+PRAGMAT precision=100 PRAGMAT
+MODE DOUBLE = LONG REAL;
+COMMENT
+***********************************************************************
+* Asumiendo tasas de inflacion anual de 7%, 8%, y 10%, *
+* encontrar el FACTOR por el cual cualquier moneda, tales como *
+* el franco, el dolar, la libra esterlina, el marco, el rublo, el yen *
+* o el florin han sido devaluadas en 1, 2, ...., N anos. *
+***********************************************************************
+COMMENT
+INT max_anos;
+INT ano;
+REAL factor1, factor2, factor3;
+CHAR respuesta;
+# Inicio del programa CALCULAR_INFLACION #
+inicio:
+print ( newline );
+CO Entrada de datos CO
+print ( newline );
+print ( "POR FAVOR, indique la cantidad maxima de anos:" );
+print ( newline );
+e10050:
+read ( max_anos );
+IF ( max_anos <= 0 ) THEN
+GOTO ceroanos
+FI;
+CO Inicializacion de variables CO
+ano := 0;
+factor1 := 1.0;
+factor2 := 1.0;
+factor3 := 1.0;
+# Calculos y salida de datos #
+print ( newline );
+print ( " ANO 7% 8% 10%" );
+print ( newline );
+FOR ano FROM 1 BY 1 TO max_anos
+DO
+factor1 := ( factor1 *
+1.07 );
+factor2 := ( factor2 )
+*
+1.08;
+factor3 := factor3 * ( 1.10 );
+print ( (ano, factor1, factor2, factor3) );
+print ( newline )
+OD;
+print ( newline );
+print ( "*** FIN DEL PROGRAMA NORMAL ***" );
+print ( newline );
+print ( "Otra vez?" );
+read ( respuesta );
+IF ( respuesta = "S" OR respuesta = "s" ) THEN
+GOTO inicio
+ELSE
+GOTO fin999
+FI;
+ceroanos:
+print ( "*** FIN DEL PROGRAMA PORQUE INDICO 0 ANOS ***" );
+fin999:
+SKIP
+END
+# Fin del programa CALCULAR_INFLACION #

@@ -79,12 +79,12 @@ public class Lexer {
         }
         return source.substring(initialPosition, position);
     }
-    
-    private String ReadString(){
+
+    private String ReadString() {
         ReadCharacter();
         int initialPosition = position;
-        
-        while(!character.equals("\"") && readPosition <= source.length()){
+
+        while (!character.equals("\"") && readPosition <= source.length()) {
             ReadCharacter();
         }
         return source.substring(initialPosition, position);
@@ -128,10 +128,15 @@ public class Lexer {
                     token = new Token(MingolToken.DIVISION, character);
                 }
                 break;
+            case"\\":
+                if (PeekCharacter().equals("n")) {
+                    token = MakeTwoCharacterToken(MingolToken.EOL);
+                }
             case "*":
                 token = new Token(MingolToken.MULTIPLICATION, character);
                 break;
             case "":
+            case "\n":
                 token = new Token(MingolToken.EOL, character);
                 break;
             case "(":
@@ -177,6 +182,11 @@ public class Lexer {
                     return new Token(tokenType, literal);
                 } else if (IsNumber(character)) {
                     String literal = ReadNumber();
+                    if (character.equals(".")) {
+                        ReadCharacter();
+                        literal += "." + ReadNumber();
+                        return new Token(MingolToken.REAL, literal);
+                    }
                     return new Token(MingolToken.INTEGER, literal);
                 } else {
                     token = new Token(MingolToken.ILLEGAL, character);

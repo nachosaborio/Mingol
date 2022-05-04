@@ -2,6 +2,7 @@ package Evaluador;
 
 import Parser.Block;
 import Parser.Booleano;
+import Parser.Decimal;
 import Parser.ExpressionStatement;
 import Parser.Identifier;
 import Parser.If;
@@ -42,6 +43,11 @@ public class Evaluator {
                 assert integral != null:
                         "El entero es nulo";
                 return new Entero(integral.getValue());
+            case "Decimal":
+                Decimal real = (Decimal) node;
+                assert real != null:
+                        "El real es nulo";
+                return new Real(real.getValue());
             case "Booleano":
                 Booleano logico = (Booleano) node;
                 assert logico != null:

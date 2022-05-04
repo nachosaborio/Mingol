@@ -66,7 +66,6 @@ public class Token {
         keywords.put("ABS", MingolToken.ALGOL);
         keywords.put("AND", MingolToken.ALGOL);
         keywords.put("ARG", MingolToken.ALGOL);
-        keywords.put("BEGIN", MingolToken.ALGOL);
         keywords.put("BIN", MingolToken.ALGOL);
         keywords.put("BITS", MingolToken.ALGOL);
         keywords.put("BOOL", MingolToken.ALGOL);

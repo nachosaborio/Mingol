@@ -47,34 +47,45 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
-//TODO revisar qué pasa si 3 >
-//TODO implementar comentarios
-//TODO size = INT
+//
 
 public class Tarea2 {
 
     public static void main(String[] args) {
-        //  try {
-        // String path = args[0];
-        // String parts[] = path.split("\\.");
-        // if (parts.length == 1) {
-        //     path += ".mingol";
-        // }
-        // //String path = "prueba.mingol";
-        // if(TestTarea(path)){
-        //     String rutaArchivo = Paths.get("").toAbsolutePath().toString();
-        //     rutaArchivo += "//" + path.replace("mingol", "a68");
-        //     Runtime runtime = Runtime.getRuntime();
-        //     Runtime.getRuntime().exec("cmd /c \"start cmd /k"+ "C:\\Algol\\a68g.exe " + path.replace("mingol", "a68"));
-        // }
-        // } catch (IOException e) {
-        //     System.out.println(e.getMessage());
-        // }
-        //TestStringEvaluator();
         REPL();
+        String path = "prueba.mingol";
+        try {
+            TestTarea(path);
+            //try {
+//         String path = args[0];
+//         String parts[] = path.split("\\.");
+//         if (parts.length == 1) {
+//             path += ".mingol";
+//         }
+//         String path = "prueba.mingol";
+//         if(TestTarea(path)){
+//             String rutaArchivo = Paths.get("").toAbsolutePath().toString();
+//             rutaArchivo += "//" + path.replace("mingol", "a68");
+//             Runtime runtime = Runtime.getRuntime();
+//             Runtime.getRuntime().exec("cmd /c \"start cmd /k"+ "C:\\Algol\\a68g.exe " + path.replace("mingol", "a68"));
+//         }
+//         } catch (IOException e) {
+//             System.out.println(e.getMessage());
+//         }
+//TestStringEvaluator();
+//REPL();
+        } catch (IOException ex) {
+            Logger.getLogger(Tarea2.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
 
+    private static void TestProyecto(){
+        
+    }
+    
     private static void REPL(){
         var scanned = new ArrayList<String>();
         

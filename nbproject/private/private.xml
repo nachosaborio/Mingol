@@ -5,8 +5,7 @@
         <group>
             <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Parser/Parser.java</file>
             <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/tarea2/Tarea2.java</file>
-            <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Evaluador/Cadena.java</file>
-            <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Evaluador/ObjectType.java</file>
+            <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Lexer/Lexer.java</file>
             <file>file:/home/ignacio/Ignacio/UNED/F%20-%20Compiladores%20II/Mingol/src/Evaluador/Evaluator.java</file>
         </group>
     </open-files>
