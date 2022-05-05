@@ -35,17 +35,17 @@ public class Mingol {
     public static void main(String[] args) {
         //REPL();
             try {
-//                String path = args[0];
-//                String parts[] = path.split("\\.");
-//                if (parts.length == 1) {
-//                    path += ".mingol";
-//                }
-                String path = "proyecto.mingol";
+                String path = args[0];
+                String parts[] = path.split("\\.");
+                if (parts.length == 1) {
+                    path += ".mingol";
+                }
+                //String path = "proyecto.mingol";
                 if (TestProyecto(path)) {
-                    //String rutaArchivo = Paths.get("").toAbsolutePath().toString();
-                    //rutaArchivo += "//" + path.replace("mingol", "a68");
-                    //Runtime runtime = Runtime.getRuntime();
-                    //Runtime.getRuntime().exec("cmd /c \"start cmd /k" + "C:\\Algol\\a68g.exe " + path.replace("mingol", "a68"));
+                    String rutaArchivo = Paths.get("").toAbsolutePath().toString();
+                    rutaArchivo += "//" + path.replace("mingol", "a68");
+                    Runtime runtime = Runtime.getRuntime();
+                    Runtime.getRuntime().exec("cmd /c \"start cmd /k" + "C:\\Algol\\a68g.exe " + path.replace("mingol", "a68"));
                 }
             } catch (IOException ex) {
             Logger.getLogger(Mingol.class.getName()).log(Level.SEVERE, null, ex);
@@ -67,6 +67,7 @@ public class Mingol {
             //Agrega los números de línea al archivo de errores
             String numeroDeLinea = String.format("%05d", linea);
             writer.write(numeroDeLinea + "\t" + line + "\n");
+            archivoAlgol.write(line + "\n");
             line = reader.readLine();
             linea++;
         }
