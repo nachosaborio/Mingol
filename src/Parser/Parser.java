@@ -302,9 +302,6 @@ public class Parser {
             case END:
                 checkSemicolon(MingolToken.END);
                 return new Statement(new Token(MingolToken.END, "END"));
-            case EOL:
-                JumpEOL();
-                return new Statement(new Token(MingolToken.EOL, ""));
             case RETURN:
                 return ParseReturnStatement();
             default:
@@ -703,6 +700,16 @@ public class Parser {
                 return null;
             }
         };
+        
+        IPrefixParseFn ParseEOL = new IPrefixParseFn() {
+            @Override
+            public Expression Function() {
+                while(peekToken.getTokenType() == MingolToken.EOL){
+                    AdvanceToken();
+                }
+                return new Expression(new Token(MingolToken.EOL, ""));
+            }
+        };
 
         //Se agregan las funciones
         HashMap<MingolToken, IPrefixParseFn> functions = new HashMap<MingolToken, IPrefixParseFn>();
@@ -725,6 +732,7 @@ public class Parser {
         functions.put(MingolToken.ILLEGAL, ParseIllegal);
         functions.put(MingolToken.ALGOL, ParseAlgol);
         functions.put(MingolToken.COMMENT, ParseComments);
+        functions.put(MingolToken.EOL, ParseEOL);
         return functions;
     }
 
