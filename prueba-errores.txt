@@ -1,0 +1,63 @@
+00001	BEGIN
+00002	PRAGMAT precision=100 PRAGMAT
+00003	MODE DOUBLE = LONG REAL;
+00004	COMMENT
+00005	***********************************************************************
+00006	* Asumiendo tasas de inflacion anual de 7%, 8%, y 10%, *
+00007	* encontrar el FACTOR por el cual cualquier moneda, tales como *
+00008	* el franco, el dolar, la libra esterlina, el marco, el rublo, el yen *
+00009	* o el florin han sido devaluadas en 1, 2, ...., N anos. *
+00010	***********************************************************************
+00011	COMMENT
+00012	INT max_anos;
+00013	INT ano;
+00014	REAL factor1, factor2, factor3;
+00015	CHAR respuesta;
+00016	# Inicio del programa CALCULAR_INFLACION #
+00017	inicio:
+00018	print ( newline );
+00019	CO Entrada de datos CO
+00020	print ( newline );
+00021	print ( "POR FAVOR, indique la cantidad maxima de anos:" );
+00022	print ( newline );
+00023	e10050:
+00024	read ( max_anos );
+00025	IF ( max_anos <= 0 ) THEN
+00026	GOTO ceroanos
+00027	FI;
+00028	CO Inicializacion de variables CO
+00029	ano := 0;
+00030	factor1 := 1.0;
+00031	factor2 := 1.0;
+00032	factor3 := 1.0;
+00033	# Calculos y salida de datos #
+00034	print ( newline );
+00035	print ( " ANO 7% 8% 10%" );
+00036	print ( newline );
+00037	FOR ano FROM 1 BY 1 TO max_anos
+00038	DO
+00039	factor1 := ( factor1 *
+00040	1.07 );
+00041	factor2 := ( factor2 )
+00042	*
+00043	1.08;
+00044	factor3 := factor3 * ( 1.10 );
+00045	print ( (ano, factor1, factor2, factor3) );
+00046	print ( newline )
+00047	OD;
+00048	print ( newline );
+00049	print ( "*** FIN DEL PROGRAMA NORMAL ***" );
+00050	print ( newline );
+00051	print ( "Otra vez?" );
+00052	read ( respuesta );
+00053	IF ( respuesta = "S" OR respuesta = "s" ) THEN
+00054	GOTO inicio
+00055	ELSE
+00056	GOTO fin999
+00057	FI;
+00058	ceroanos:
+00059	print ( "*** FIN DEL PROGRAMA PORQUE INDICO 0 ANOS ***" );
+00060	fin999:
+00061	SKIP
+00062	END
+00063	# Fin del programa CALCULAR_INFLACION #
