@@ -18,6 +18,6 @@ public class Errado implements Objeto{
 
     @Override
     public String Inspect() {
-        return "Error: " + message;
+        return message;
     }
 }

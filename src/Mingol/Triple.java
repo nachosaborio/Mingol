@@ -1,4 +1,4 @@
-package tarea2;
+package Mingol;
         
 public class Triple<A, B, C> {
     private final A mFirst;

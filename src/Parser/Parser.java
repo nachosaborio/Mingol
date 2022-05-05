@@ -12,6 +12,7 @@ import java.util.HashMap;
 public class Parser {
 
     public boolean hasErrors = false;
+    public int line = 1;
     private boolean isEnd = false;
     private boolean isComment = false;
     private boolean errorBegin = false;
@@ -53,10 +54,6 @@ public class Parser {
         this(lexer, null, null);
     }
 
-    public ArrayList<String> GetErrors() {
-        return errors;
-    }
-
     public Program ParseProgram() {
         Program program = new Program(new ArrayList<Statement>());
 
@@ -72,8 +69,37 @@ public class Parser {
     }
 
     public void AdvanceToken() {
+        if(currentToken != null && currentToken.getTokenType().equals(MingolToken.EOL)){
+            line++;
+        }
         currentToken = peekToken;
         peekToken = lexer.NextToken();
+    }
+
+    private void checkSemicolon(MingolToken mingol) {
+        if (peekToken.getTokenType() != MingolToken.EOL
+                && peekToken.getTokenType() != MingolToken.EOF) {
+            errors.add("\tLinea "+ linea +" Error 202: no puede haber nada en la línea luego del token " + mingol);
+            hasErrors = true;
+        }
+        AdvanceToken();
+    }
+
+    private Precedence CurrentPrecedence() {
+        assert currentToken != null :
+                "current token es null";
+        Precedence precedence = PRECEDENCES.get(currentToken.getTokenType());
+        if (precedence == null) {
+            return Precedence.LOWEST;
+        }
+        return precedence;
+    }
+
+    private void ExpectedTokenError(MingolToken token) {
+        String error = "\tLinea "+ linea +" Error 204: Se esperaba un token de tipo " + token
+                + " pero se obtuvo un " + peekToken.getTokenType();
+        errors.add(error);
+        hasErrors = true;
     }
 
     private boolean ExpectedToken(MingolToken token) {
@@ -85,127 +111,14 @@ public class Parser {
         return false;
     }
 
-    private void ExpectedTokenError(MingolToken token) {
-        String error = "\tError 204: Se esperaba un token de tipo " + token
-                + " pero se obtuvo un " + peekToken.getTokenType();
-        errors.add(error);
-        hasErrors = true;
+    public ArrayList<String> GetErrors() {
+        return errors;
     }
 
-    private Statement ParseSatement() {
-        assert currentToken != null :
-                "El current token es null";
-        switch (currentToken.getTokenType()) {
-            case TYPEINT:
-            case TYPESTRING:
-            case TYPECHAR:
-            case TYPEREAL:
-                return ParseLetStatement();
-            case BEGIN:
-                checkSemicolon(MingolToken.BEGIN);
-                return new Statement(new Token(MingolToken.BEGIN, "BEGIN"));
-            case END:
-                checkSemicolon(MingolToken.BEGIN);
-                return new Statement(new Token(MingolToken.END, "END"));
-            case RETURN:
-                return ParseReturnStatement();
-            default:
-                return ParseExpressionStatement();
-        }
-    }
-
-    private void checkSemicolon(MingolToken mingol) {
-        if (peekToken.getTokenType() != MingolToken.EOL
-                && peekToken.getTokenType() != MingolToken.EOF) {
-            errors.add("\tError 202: no puede haber nada en la línea luego del token " + mingol);
-            hasErrors = true;
-        }
-        AdvanceToken();
-    }
-
-    private LetStatement ParseLetStatement() {
-        assert currentToken != null :
-                "El current token es null";
-        LetStatement letStatement = new LetStatement(currentToken);
-
-        if (!ExpectedToken(MingolToken.IDENT)) {
-            return null;
-        }
-        letStatement.SetName((Identifier) prefixParseFns.get(MingolToken.IDENT).Function());
-
-        if (!ExpectedToken(MingolToken.ASSIGN)) {
-            return null;
-        }
-
-        AdvanceToken();
-        letStatement.SetValue(ParseExpression(Precedence.LOWEST));
-
-        assert peekToken != null :
-                "Peek token es null";
-
-        if (peekToken.getTokenType().equals(MingolToken.SEMICOLON)) {
+    private void JumpEOL() {
+        while(currentToken.getTokenType().equals(MingolToken.EOL)){
             AdvanceToken();
         }
-
-        return letStatement;
-    }
-
-    private ReturnStatement ParseReturnStatement() {
-        assert currentToken != null :
-                "El current token es null";
-        ReturnStatement returnStatement = new ReturnStatement(currentToken);
-        AdvanceToken();
-        while (currentToken.getTokenType() != MingolToken.SEMICOLON) {
-            AdvanceToken();
-        }
-        return returnStatement;
-    }
-
-    private ExpressionStatement ParseExpressionStatement() {
-        assert currentToken != null :
-                "El current token es null";
-        ExpressionStatement expressionStatement = new ExpressionStatement(currentToken);
-        expressionStatement.setExpression(ParseExpression(Precedence.LOWEST));
-
-        assert peekToken != null :
-                "El peek token es null";
-
-        if (peekToken.getTokenType() == MingolToken.SEMICOLON) {
-            AdvanceToken();
-        }
-
-        return expressionStatement;
-    }
-
-    private Expression ParseExpression(Precedence precedence) {
-        assert currentToken != null :
-                "El current token es null";
-        IPrefixParseFn prefixParseFn = prefixParseFns.get(currentToken.getTokenType());
-        if (prefixParseFn == null) {
-            String mensaje = "\tError 203: Token inválido: " + currentToken.getLiteral();
-            errors.add(mensaje);
-            hasErrors = true;
-            return null;
-        }
-        Expression leftExpression = prefixParseFn.Function();
-
-        assert peekToken != null :
-                "Peek token es null";
-
-        while ((peekToken.getTokenType() != MingolToken.SEMICOLON)
-                && (precedence.ordinal() < PeekPrecedence().ordinal())) {
-            IInfixParseFn infixParseFn = infixParseFns.get(peekToken.getTokenType());
-
-            if (infixParseFn == null) {
-                return leftExpression;
-            }
-
-            AdvanceToken();
-            assert leftExpression != null :
-                    "left expression es null";
-            leftExpression = infixParseFn.Function(leftExpression);
-        }
-        return leftExpression;
     }
 
     private Block ParseBlock() {
@@ -261,14 +174,142 @@ public class Parser {
         return arguments;
     }
 
-    private Precedence CurrentPrecedence() {
+    private Expression ParseExpression(Precedence precedence) {
         assert currentToken != null :
-                "current token es null";
-        Precedence precedence = PRECEDENCES.get(currentToken.getTokenType());
-        if (precedence == null) {
-            return Precedence.LOWEST;
+                "El current token es null";
+        IPrefixParseFn prefixParseFn = prefixParseFns.get(currentToken.getTokenType());
+        if (prefixParseFn == null) {
+            String mensaje = "\tLinea "+ linea +" Error 203: Token inválido: " + currentToken.getLiteral();
+            errors.add(mensaje);
+            hasErrors = true;
+            return null;
         }
-        return precedence;
+        Expression leftExpression = prefixParseFn.Function();
+
+        assert peekToken != null :
+                "Peek token es null";
+
+        while ((peekToken.getTokenType() != MingolToken.SEMICOLON)
+                && (precedence.ordinal() < PeekPrecedence().ordinal())) {
+            IInfixParseFn infixParseFn = infixParseFns.get(peekToken.getTokenType());
+
+            if (infixParseFn == null) {
+                return leftExpression;
+            }
+
+            AdvanceToken();
+            assert leftExpression != null :
+                    "left expression es null";
+            leftExpression = infixParseFn.Function(leftExpression);
+        }
+        return leftExpression;
+    }
+
+    private ExpressionStatement ParseExpressionStatement() {
+        assert currentToken != null :
+                "El current token es null";
+        ExpressionStatement expressionStatement = new ExpressionStatement(currentToken);
+        expressionStatement.setExpression(ParseExpression(Precedence.LOWEST));
+
+        assert peekToken != null :
+                "El peek token es null";
+
+        if (peekToken.getTokenType() == MingolToken.SEMICOLON) {
+            AdvanceToken();
+        }
+
+        return expressionStatement;
+    }
+
+    private LetStatement ParseLetStatement() {
+        assert currentToken != null :
+                "El current token es null";
+        LetStatement letStatement = new LetStatement(currentToken);
+
+        MingolToken esperado = currentToken.getTokenType();
+
+        if (!ExpectedToken(MingolToken.IDENT)) {
+            return null;
+        }
+        letStatement.SetName((Identifier) prefixParseFns.get(MingolToken.IDENT).Function());
+
+        if (!ExpectedToken(MingolToken.ASSIGN)) {
+            return null;
+        }
+
+        AdvanceToken();
+        letStatement.SetValue(ParseExpression(Precedence.LOWEST));
+
+        assert peekToken != null :
+                "Peek token es null";
+
+        switch (esperado) {
+            case TYPESTRING:
+                if (!(letStatement.getValue() instanceof StringLiteral)) {
+                    errors.add("\tLinea "+ linea +" Error 201: " + letStatement.getName().toString() + " no es un STRING");
+                    hasErrors = true;
+                    return null;
+                }
+                break;
+            case TYPEINT:
+                if (!(letStatement.getValue() instanceof Integral)) {
+                    errors.add("\tLinea "+ linea +" Error 201: " + letStatement.getName().toString() + " no es un INT");
+                    hasErrors = true;
+                    return null;
+                }
+                break;
+            case TYPEREAL:
+                if (!(letStatement.getValue() instanceof Decimal)) {
+                    errors.add("\tLinea "+ linea +" Error 201: " + letStatement.getName().toString() + " no es un REAL");
+                    hasErrors = true;
+                    return null;
+                }
+                break;
+        }
+
+        if (!peekToken.getTokenType().equals(MingolToken.SEMICOLON)) {
+            ExpectedToken(MingolToken.SEMICOLON);
+            return null;
+        }
+        AdvanceToken();
+        return letStatement;
+    }
+
+    private ReturnStatement ParseReturnStatement() {
+        assert currentToken != null :
+                "El current token es null";
+        ReturnStatement returnStatement = new ReturnStatement(currentToken);
+        AdvanceToken();
+        while (currentToken.getTokenType() != MingolToken.SEMICOLON) {
+            AdvanceToken();
+        }
+        return returnStatement;
+    }
+
+    private Statement ParseSatement() {
+        assert currentToken != null :
+                "El current token es null";
+        switch (currentToken.getTokenType()) {
+            case TYPEINT:
+            case TYPESTRING:
+            case TYPECHAR:
+            case TYPEREAL:
+            case IDENT:
+                return ParseLetStatement();
+            case BEGIN:
+                checkSemicolon(MingolToken.BEGIN);
+                return new Statement(new Token(MingolToken.BEGIN, "BEGIN"));
+            case END:
+                checkSemicolon(MingolToken.END);
+                return new Statement(new Token(MingolToken.END, "END"));
+            case EOL:
+                JumpEOL();
+                return new Statement(new Token(MingolToken.EOL, ""));
+            case RETURN:
+                return ParseReturnStatement();
+            default:
+                return ParseExpressionStatement();
+        }
     }
 
     private Precedence PeekPrecedence() {
@@ -290,6 +331,15 @@ public class Parser {
                 assert currentToken != null :
                         "Current token es null";
                 return new Identifier(currentToken, currentToken.getLiteral());
+            }
+        };
+
+        IPrefixParseFn ParseEtiqueta = new IPrefixParseFn() {
+            @Override
+            public Expression Function() {
+                assert currentToken != null :
+                        "Current token es null";
+                return new Etiqueta(currentToken, currentToken.getLiteral());
             }
         };
 
@@ -389,14 +439,20 @@ public class Parser {
                 checkSemicolon(MingolToken.THEN);
                 ifExpression.setConsequence(ParseBlock());
 
+                JumpEOL();
+
                 if (currentToken.getTokenType().equals(MingolToken.ELSE)) {
                     checkSemicolon(MingolToken.ELSE);
                     ifExpression.setAlternative(ParseBlock());
                 }
-//                if (! !ExpectedToken(MingolToken.FI)) {
-//                    return null;
-//                }
-
+                JumpEOL();
+                if (!currentToken.getTokenType().equals(MingolToken.FI)) {
+                    return null;
+                }
+                while (currentToken.getTokenType().equals(MingolToken.EOL)) {
+                    AdvanceToken();
+                }
+                JumpEOL();
                 return ifExpression;
             }
         };
@@ -414,12 +470,12 @@ public class Parser {
                     return null;
                 }
                 forExpression.setCiclo(new Identifier(currentToken, currentToken.getLiteral()));
-
+                JumpEOL();
                 //FROM
                 if (!ExpectedToken(MingolToken.FROM)) {
                     return null;
                 }
-
+                JumpEOL();
                 if (!peekToken.getTokenType().equals(MingolToken.IDENT)
                         && !peekToken.getTokenType().equals(MingolToken.INTEGER)) {
                     ExpectedToken(MingolToken.INTEGER);
@@ -431,7 +487,7 @@ public class Parser {
                 } else {
                     forExpression.setMinima(new Integral(currentToken, Integer.parseInt(currentToken.getLiteral())));
                 }
-
+                JumpEOL();
                 //BY
                 if (!ExpectedToken(MingolToken.BY)) {
                     return null;
@@ -448,7 +504,7 @@ public class Parser {
                 } else {
                     forExpression.setIncremento(new Integral(currentToken, Integer.parseInt(currentToken.getLiteral())));
                 }
-
+                JumpEOL();
                 //TO
                 if (!ExpectedToken(MingolToken.TO)) {
                     return null;
@@ -465,9 +521,11 @@ public class Parser {
                 } else {
                     forExpression.setMaxima(new Integral(currentToken, Integer.parseInt(currentToken.getLiteral())));
                 }
-
+                AdvanceToken();
+                JumpEOL();
                 //DO
-                if (!ExpectedToken(MingolToken.DO)) {
+                if (!currentToken.getTokenType().equals(MingolToken.DO)) {
+                    ExpectedToken(MingolToken.DO);
                     return null;
                 }
                 forExpression.setComands(ParseBlock());
@@ -586,14 +644,12 @@ public class Parser {
                         return null;
                     }
                     return skip;
-                }
-                else{
+                } else {
                     AdvanceToken();
-                    if(!currentToken.getTokenType().equals(MingolToken.EOL)){
+                    if (!currentToken.getTokenType().equals(MingolToken.EOL)) {
                         ExpectedToken(MingolToken.SEMICOLON);
                         return null;
-                    }
-                    else{
+                    } else {
                         AdvanceToken();
                         return skip;
                     }
@@ -616,7 +672,7 @@ public class Parser {
         IPrefixParseFn ParseAlgol = new IPrefixParseFn() {
             @Override
             public Expression Function() {
-                errors.add("\tADVERTENCIA: Instruccion " + currentToken.getLiteral() + " no soportada por esta version");
+                errors.add("\tLinea "+ linea +" ADVERTENCIA: Instruccion " + currentToken.getLiteral() + " no soportada por esta version");
                 Token thisToken = currentToken;
                 while (currentToken.getTokenType() != MingolToken.EOL
                         && currentToken.getTokenType() != MingolToken.EOF) {
@@ -626,10 +682,23 @@ public class Parser {
             }
         };
 
+        IPrefixParseFn ParseGoto = new IPrefixParseFn() {
+            @Override
+            public Expression Function() {
+                Goto gouto = new Goto(currentToken);
+                if (!ExpectedToken(MingolToken.IDENT)) {
+                    return null;
+                }
+                gouto.setIdentificador(new Identifier(currentToken, currentToken.getLiteral()));
+                AdvanceToken();
+                return gouto;
+            }
+        };
+
         IPrefixParseFn ParseIllegal = new IPrefixParseFn() {
             @Override
             public Expression Function() {
-                errors.add("Error 201: Token ilegal: " + currentToken.getLiteral());
+                errors.add("\tLinea "+ linea +"Error 205: Token ilegal: " + currentToken.getLiteral());
                 hasErrors = true;
                 return null;
             }
@@ -638,6 +707,7 @@ public class Parser {
         //Se agregan las funciones
         HashMap<MingolToken, IPrefixParseFn> functions = new HashMap<MingolToken, IPrefixParseFn>();
         functions.put(MingolToken.IDENT, ParseIdentifier);
+        functions.put(MingolToken.ETIQUETA, ParseEtiqueta);
         functions.put(MingolToken.INTEGER, ParseInteger);
         functions.put(MingolToken.REAL, ParseReal);
         functions.put(MingolToken.SUBSTRACTION, ParsePrefixExpressions);
@@ -650,6 +720,7 @@ public class Parser {
         functions.put(MingolToken.FOR, ParseFor);
         functions.put(MingolToken.READ, ParseRead);
         functions.put(MingolToken.PRINT, ParsePrint);
+        functions.put(MingolToken.GOTO, ParseGoto);
         functions.put(MingolToken.SKIP, ParseSkip);
         functions.put(MingolToken.ILLEGAL, ParseIllegal);
         functions.put(MingolToken.ALGOL, ParseAlgol);

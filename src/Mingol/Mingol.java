@@ -9,9 +9,10 @@
 //Estudiante: Sergio Ignacio Saborío Segura
 //Cédula: 1-1717-0701
 //PRIMER CUATRIMESTRE, 2022
-package tarea2;
+package Mingol;
 
 import Evaluador.Environment;
+import Evaluador.Errado;
 import Evaluador.Evaluator;
 import Evaluador.Objeto;
 import Parser.Parser;
@@ -23,43 +24,80 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Scanner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class Tarea2 {
+public class Mingol {
 
     public static void main(String[] args) {
-        REPL();
-        String path = "prueba.mingol";
-        try {
-            TestProyecto(path);
-            //try {
-//         String path = args[0];
-//         String parts[] = path.split("\\.");
-//         if (parts.length == 1) {
-//             path += ".mingol";
-//         }
-//         String path = "prueba.mingol";
-//         if(TestTarea(path)){
-//             String rutaArchivo = Paths.get("").toAbsolutePath().toString();
-//             rutaArchivo += "//" + path.replace("mingol", "a68");
-//             Runtime runtime = Runtime.getRuntime();
-//             Runtime.getRuntime().exec("cmd /c \"start cmd /k"+ "C:\\Algol\\a68g.exe " + path.replace("mingol", "a68"));
-//         }
-//         } catch (IOException e) {
-//             System.out.println(e.getMessage());
-//         }
-//TestStringEvaluator();
-//REPL();
-        } catch (IOException ex) {
-            Logger.getLogger(Tarea2.class.getName()).log(Level.SEVERE, null, ex);
+        //REPL();
+            try {
+//                String path = args[0];
+//                String parts[] = path.split("\\.");
+//                if (parts.length == 1) {
+//                    path += ".mingol";
+//                }
+                String path = "proyecto.mingol";
+                if (TestProyecto(path)) {
+                    //String rutaArchivo = Paths.get("").toAbsolutePath().toString();
+                    //rutaArchivo += "//" + path.replace("mingol", "a68");
+                    //Runtime runtime = Runtime.getRuntime();
+                    //Runtime.getRuntime().exec("cmd /c \"start cmd /k" + "C:\\Algol\\a68g.exe " + path.replace("mingol", "a68"));
+                }
+            } catch (IOException ex) {
+            Logger.getLogger(Mingol.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
 
-    private static void TestProyecto(String path) throws IOException{
+    private static boolean TestProyecto(String archivoOriginal) throws IOException{
+        BufferedReader reader = new BufferedReader(new FileReader(archivoOriginal));
+        String[] nombreArchivo = archivoOriginal.split("\\.");
+        FileWriter writer = new FileWriter(nombreArchivo[0] + "-errores.txt");
+        FileWriter archivoAlgol = new FileWriter(archivoOriginal.replace("mingol", "a68"));
+        String line = reader.readLine();
+        String error = "";
+        String source = "";
+        int linea = 1;
         
+        while(line != null){
+            source += line + "\\n";
+            //Agrega los números de línea al archivo de errores
+            String numeroDeLinea = String.format("%05d", linea);
+            writer.write(numeroDeLinea + "\t" + line + "\n");
+            line = reader.readLine();
+            linea++;
+        }
+        
+        Lexer lexer = new Lexer(source);
+        Parser parser = new Parser(lexer);
+        Program program = parser.ParseProgram();
+        Environment env = new Environment();
+        Evaluator evaluator = new Evaluator();
+        if(parser.GetErrors().size() > 0){
+            for(String fallo : parser.GetErrors()){
+                writer.write(fallo +"\n");
+            }
+        }
+        else{
+            Objeto evaluated = evaluator.Evaluate(program, env);
+            if(evaluated instanceof Errado){
+                writer.write(evaluated.Inspect());
+            }
+        }
+        
+        
+        
+        reader.close();
+        writer.close();
+        archivoAlgol.close();
+        
+        if(parser.hasErrors || evaluator.hasErrors){
+            return false;
+        }
+        return true;
     }
     
     private static void REPL(){

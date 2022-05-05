@@ -1,5 +1,6 @@
 package Lexer;
 
+import Evaluador.Caracter;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -128,11 +129,10 @@ public class Lexer {
                     token = new Token(MingolToken.DIVISION, character);
                 }
                 break;
-            case"\\":
+            case "\\":
                 if (PeekCharacter().equals("n")) {
                     token = MakeTwoCharacterToken(MingolToken.EOL);
-                }
-                else{
+                } else {
                     token = MakeTwoCharacterToken(MingolToken.ILLEGAL);
                 }
                 break;
@@ -184,6 +184,10 @@ public class Lexer {
             default:
                 if (IsLetter(character)) {
                     String literal = ReadIdentifier();
+                    if (character.equals(":")) {
+                        ReadCharacter();
+                        return new Token(MingolToken.ETIQUETA, literal);
+                    }
                     MingolToken tokenType = Token.LookupTokenType(literal);
                     return new Token(tokenType, literal);
                 } else if (IsNumber(character)) {
