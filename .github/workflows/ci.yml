@@ -40,6 +40,11 @@ jobs:
 
       - name: Correr los arneses de prueba
         shell: pwsh
+        # El TEMP del runner es una ruta corta 8.3 (RUNNER~1) y los arneses comparan rutas como texto:
+        # se usa runner.temp, que es una ruta larga
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: ./tests/ci/ejecutar-pruebas.ps1 -Logs "${{ runner.temp }}/mingol-logs"
 
       - name: Generar el .jar (ant jar)
