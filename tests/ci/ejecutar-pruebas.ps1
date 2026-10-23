@@ -54,8 +54,18 @@ function Correr([string]$clase, [string]$modo, [string]$carpeta, [bool]$ea) {
     Write-Host "$estado $nombre  ($total)"
     if ($codigo -ne 0) {
         # Muestra las fallas para no tener que bajar el log
-        Get-Content -LiteralPath $log | Where-Object { $_ -match "^(FALLA|ABORTADO)|^\s+- " } |
-            Select-Object -First 40 | ForEach-Object { Write-Host "      $_" }
+        $detalle = @(Get-Content -LiteralPath $log | Where-Object { $_ -match "^(FALLA|ABORTADO)|^\s+- |Exception|Error:" } |
+            Select-Object -First 40)
+        # Si no hay líneas de falla (p. ej. el arnés abortó), se muestran las últimas del log
+        if ($detalle.Count -eq 0) { $detalle = @(Get-Content -LiteralPath $log | Select-Object -Last 20) }
+        $detalle | ForEach-Object { Write-Host "      $_" }
+        # En GitHub Actions, cada línea también va como anotación visible en el resumen del run
+        if ($env:GITHUB_ACTIONS -eq "true") {
+            $detalle | Select-Object -First 10 | ForEach-Object {
+                $texto = ($_ -replace "%", "%25" -replace "`r", "" -replace "`n", " ").Trim()
+                Write-Host "::error title=$nombre::$texto"
+            }
+        }
     }
     return [pscustomobject]@{ Nombre = $nombre; Codigo = $codigo }
 }
