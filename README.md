@@ -1,5 +1,7 @@
 # MINGOL
 
+[![CI](https://github.com/nachosaborio/Mingol/actions/workflows/ci.yml/badge.svg)](https://github.com/nachosaborio/Mingol/actions/workflows/ci.yml)
+![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%2FCD-2088FF?logo=githubactions&logoColor=white)
 ![Java](https://img.shields.io/badge/Java-17-ED8B00?logo=openjdk&logoColor=white)
 ![Apache Ant](https://img.shields.io/badge/Apache%20Ant-1.10-A81C7D?logo=apacheant&logoColor=white)
 ![NetBeans](https://img.shields.io/badge/NetBeans-12.6-1B6AC6?logo=apachenetbeanside&logoColor=white)
@@ -54,7 +56,29 @@ java --enable-preview -cp build\classes Mingol.Mingol prueba.mingol
 
 También se puede abrir como proyecto de NetBeans (`nbproject/`).
 
-> **Nota:** `dist/Mingol.jar` corresponde a la versión original de la entrega y no incluye las correcciones posteriores. Para usarlas, compilar con `ant compile` (o generar un `.jar` nuevo con `ant jar`).
+Para generar el `.jar` (queda en `dist/Mingol.jar`):
+
+```
+ant jar
+java --enable-preview -jar dist\Mingol.jar prueba.mingol
+```
+
+## Pruebas
+
+Los arneses de `tests/arneses` se corren con un script de PowerShell (necesita JDK 17 en el `PATH` y `ant compile` hecho antes):
+
+```
+powershell -ExecutionPolicy Bypass -File tests\ci\ejecutar-pruebas.ps1
+```
+
+Trabajan siempre en una carpeta temporal y nunca ejecutan el `a68g` real: usan `java.exe` como sustituto.
+
+## CI/CD
+
+El flujo de [GitHub Actions](.github/workflows/ci.yml) corre en Windows:
+
+- **CI:** en cada push a `main`, en cada pull request y a mano. Compila con Ant, corre los arneses (también con `-ea`), genera el `.jar`, comprueba que arranca y lo guarda como artefacto del run.
+- **CD:** al subir una etiqueta `v*` (por ejemplo `git tag v1.0.0` y `git push origin v1.0.0`), publica un Release de GitHub con `Mingol.jar` adjunto.
 
 ## Estructura
 
@@ -66,6 +90,8 @@ También se puede abrir como proyecto de NetBeans (`nbproject/`).
 | `src/Errores` | Mensajes estructurados y escritura del archivo de errores |
 | `src/Mingol` | Punto de entrada, generación del `.a68` e invocación de `a68g` |
 | `tests/arneses` | Arneses de prueba (sin JUnit) |
+| `tests/ci` | Script que corre los arneses (lo usa el CI) |
+| `.github/workflows` | Flujo de CI/CD de GitHub Actions |
 
 ## Estado
 

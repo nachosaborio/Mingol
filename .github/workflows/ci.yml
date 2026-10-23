@@ -1,0 +1,88 @@
+# CI/CD de MINGOL
+# - CI: en cada push a main, en cada pull request y a mano: compila, corre los arneses y guarda el .jar.
+# - CD: al subir una etiqueta v* (p. ej. v1.0.0) publica un Release de GitHub con el .jar.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Solo lectura por defecto; el job de release pide escritura aparte
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Compilar y probar
+    # Windows: los arneses usan java.exe como a68g falso y rutas de Windows
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@v4
+
+      - name: Instalar JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Ant viene preinstalado en la imagen windows-2022
+      - name: Compilar (ant compile)
+        shell: pwsh
+        run: |
+          ant -version
+          ant -noinput compile
+
+      - name: Correr los arneses de prueba
+        shell: pwsh
+        run: ./tests/ci/ejecutar-pruebas.ps1 -Logs "${{ runner.temp }}/mingol-logs"
+
+      - name: Generar el .jar (ant jar)
+        shell: pwsh
+        run: ant -noinput jar
+
+      - name: Probar el .jar sin argumentos (debe mostrar el uso y salir con 1)
+        shell: pwsh
+        run: |
+          $salida = & java --enable-preview -jar dist/Mingol.jar 2>&1 | Out-String
+          Write-Host $salida
+          if ($LASTEXITCODE -ne 1 -or $salida -notmatch "Uso:") { throw "El .jar no se comporta como se espera" }
+
+      - name: Guardar el .jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mingol-jar
+          path: dist/Mingol.jar
+          if-no-files-found: error
+
+      - name: Guardar los logs de las pruebas si algo falló
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-pruebas
+          path: ${{ runner.temp }}/mingol-logs
+          if-no-files-found: ignore
+
+  release:
+    name: Publicar release
+    needs: build-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Bajar el .jar
+        uses: actions/download-artifact@v4
+        with:
+          name: Mingol-jar
+
+      - name: Crear el release con el .jar
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Mingol.jar
+          generate_release_notes: true
