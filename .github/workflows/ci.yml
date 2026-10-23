@@ -57,6 +57,8 @@ jobs:
           $salida = & java --enable-preview -jar dist/Mingol.jar 2>&1 | Out-String
           Write-Host $salida
           if ($LASTEXITCODE -ne 1 -or $salida -notmatch "Uso:") { throw "El .jar no se comporta como se espera" }
+          # El código 1 era el esperado: el paso termina bien
+          exit 0
 
       - name: Guardar el .jar
         uses: actions/upload-artifact@v7
