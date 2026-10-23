@@ -15,4 +15,9 @@ public class Expression implements ASTNode{
     public String TokenLiteral() {
         return token.getLiteral();
     }
+
+    // Línea física del nodo (la de su token); 0 si no tiene token
+    public int getLine() {
+        return token == null ? 0 : token.getLine();
+    }
 }

@@ -18,11 +18,14 @@ import Parser.Print;
 import Parser.Program;
 import Parser.Statement;
 import Parser.StringLiteral;
+import Errores.Mensaje;
 import java.util.ArrayList;
 
 public class Evaluator {
 
     public static boolean hasErrors = false;
+    // Mensajes estructurados del evaluador para el archivo de errores (único sitio de registro: NewError)
+    private static ArrayList<Mensaje> mensajes = new ArrayList<>();
     public static final Logico TRUE = new Logico(true);
     public static final Logico FALSE = new Logico(false);
     public static final Nulo NULL = new Nulo();
@@ -31,30 +34,57 @@ public class Evaluator {
     private static String UnknownIdentifier = "\tError 303: Identificador no encontrado:";
     private static String RepeatedIdentificator = "\tError 304: Identificador ya declarado:";
     private static String AlreadyBegin = "\tError 305: No puede haber más de una sentencia BEGIN por archivo.";
-    private static String AlreadyEnded = "\tError 305: No puede haber más de una sentencia END por archivo.";
+    // END repetido usa 306 (antes repetía el 305 de BEGIN)
+    private static String AlreadyEnded = "\tError 306: No puede haber más de una sentencia END por archivo.";
     private static String NotBegined = "\tError 307: No se encontró una sentencia BEGIN.";
     private static String NotEnded = "\tError 308: No se encontró una sentencia END.";
 
+    // Mensajes registrados por el evaluador desde el último Reiniciar()
+    public static ArrayList<Mensaje> GetMensajes() {
+        return mensajes;
+    }
+
+    // Deja el estado estático limpio para analizar otro programa en la misma JVM
+    public static void Reiniciar() {
+        mensajes.clear();
+        hasErrors = false;
+    }
+
     public static Objeto Evaluate(ASTNode node, Environment env) {
+        // El parser pudo dejar nodos incompletos (null): no hay nada que evaluar
+        if (node == null) {
+            return null;
+        }
         String className = node.getClass().getSimpleName();
 
         switch (className) {
             case "Program":
                 Program program = (Program) node;
                 Objeto evaluado = EvaluateProgram(program, env);
+                // Tras recorrer todo el programa: 307 y/o 308 solo si de verdad falta BEGIN/END
+                Errado faltante = null;
                 if(env.get("BEGIN") == null){
-                    return NewError(NotBegined, new String[]{});
+                    faltante = NewError(Mensaje.SIN_LINEA, 307, "No se encontró una sentencia BEGIN", "BEGIN",
+                            NotBegined, new String[]{});
                 }
                 if(env.get("END") == null){
-                    return NewError(NotEnded, new String[]{});
+                    Errado sinEnd = NewError(Mensaje.SIN_LINEA, 308, "No se encontró una sentencia END", "END",
+                            NotEnded, new String[]{});
+                    if (faltante == null) {
+                        faltante = sinEnd;
+                    }
                 }
-                return evaluado;
+                // Se devuelve el primero de los faltantes; si no hay, lo evaluado
+                return faltante != null ? faltante : evaluado;
             case "Statement":
                 Statement statement = (Statement) node;
                 return EvaluateStatement(statement, env);
             case "ExpressionStatement":
                 ExpressionStatement expression = (ExpressionStatement) node;
-
+                // Expresión null del parser (p. ej. IF sin FI): su error ya se registró
+                if (expression.getExpression() == null) {
+                    return null;
+                }
                 assert expression.getExpression() != null :
                         "La expresion es nula";
                 return Evaluate(expression.getExpression(), env);
@@ -75,26 +105,45 @@ public class Evaluator {
                 return ToBooleanObject(logico.getValue());
             case "Prefix":
                 Prefix prefix = (Prefix) node;
+                // Operando null del parser: su error ya se registró, sin error nuevo
+                if (prefix.getRight() == null) {
+                    return null;
+                }
                 assert prefix.getRight() != null :
                         "La derecha es nula";
                 Objeto right = Evaluate(prefix.getRight(), env);
+                // Un Errado del operando se propaga sin crear otro; un resultado null no se evalúa
+                if (right == null || right instanceof Errado) {
+                    return right;
+                }
                 assert right != null :
                         "Right es nulo";
-                return EvaluatePrefixExpression(prefix.getOperator(), right);
+                return EvaluatePrefixExpression(prefix, prefix.getOperator(), right);
             case "Infix":
                 Infix infix = (Infix) node;
+                // Se evalúan los dos lados (Evaluate(null) da null) para registrar los errores de ambos
+                Objeto left = Evaluate(infix.getLeft(), env);
+                Objeto iright = Evaluate(infix.getRight(), env);
+                // Un Errado del operando se propaga sin crear un 301 en cascada
+                if (left instanceof Errado) {
+                    return left;
+                }
+                if (iright instanceof Errado) {
+                    return iright;
+                }
+                // Operando null (parser o código no pedido): null sin error
+                if (left == null || iright == null) {
+                    return null;
+                }
                 assert infix.getLeft() != null :
                         "La izquierda es nula";
                 assert infix.getRight() != null :
                         "La derecha es nula";
-                Objeto left = Evaluate(infix.getLeft(), env);
-                Objeto iright = Evaluate(infix.getRight(), env);
-                
                 assert left != null :
                         "La izquierda es nula";
                 assert iright != null :
                         "La derecha es nula";
-                return EvaluateInfixExpression(infix.getOperator(), left, iright);
+                return EvaluateInfixExpression(infix, infix.getOperator(), left, iright);
             case "Block":
                 Block block = (Block) node;
                 return EvaluateStatements(block.getStatements(), env);
@@ -108,11 +157,23 @@ public class Evaluator {
                 Objeto value = Evaluate(let.getValue(), env);
                 assert let.getName() != null :
                         "El nombre del identificador es nulo";
+                // El parser pudo dejar el valor en null: la variable cuenta igual como declarada
+                if (value == null) {
+                    value = NULL;
+                }
                 if (env.get(let.getName().getValue()) == null) {
+                    // Se guarda aunque sea un Errado: la variable cuenta como declarada (sin 303 en cascada)
                     env.put(let.getName().getValue(), value);
                 } else {
-                    return NewError(RepeatedIdentificator,
+                    Errado repetido = NewError(let.getName().getLine(), 304, "Identificador ya declarado",
+                            let.getName().getValue(), RepeatedIdentificator,
                             new String[]{let.getName().getValue()});
+                    // Se devuelve el primer error de la sentencia (el del valor, si lo hubo)
+                    return (value instanceof Errado) ? value : repetido;
+                }
+                // El error del valor inicial ya no se descarta: se devuelve para que EvaluateProgram lo vea
+                if (value instanceof Errado) {
+                    return value;
                 }
                 break;
             case "Identifier":
@@ -128,26 +189,38 @@ public class Evaluator {
                 if (env.get(etiqueta.getValue()) == null) {
                     env.put(etiqueta.getValue(), "");
                 } else {
-                    return NewError(RepeatedIdentificator,
-                            new String[]{etiqueta.getValue()});
+                    // 304 con la línea de la etiqueta
+                    return NewError(etiqueta.getLine(), 304, "Identificador ya declarado", etiqueta.getValue(),
+                            RepeatedIdentificator, new String[]{etiqueta.getValue()});
                 }
                 break;
             case "Goto":
                 Goto gouto = (Goto) node;
                 if(env.get(gouto.getIdentificador().TokenLiteral()) == null) {
-                    return NewError(UnknownIdentifier,
+                    // 303 con la línea del identificador del GOTO
+                    return NewError(gouto.getIdentificador().getLine(), 303, "Identificador no encontrado",
+                            gouto.getIdentificador().TokenLiteral(), UnknownIdentifier,
                             new String[]{gouto.getIdentificador().toString()});
                 }
                 break;
             case "Print":
                 Print print = (Print) node;
+                // Se registran todos los identificadores no definidos y se devuelve el primero
+                Errado primeroPrint = null;
                 if(print.getIdentificadores().size() >0){
                     for(Expression identificador : print.getIdentificadores()){
                         if(env.get(identificador.TokenLiteral()) == null){
-                            return NewError(UnknownIdentifier,
-                            new String[]{identificador.TokenLiteral()});
+                            Errado noDefinido = NewError(identificador.getLine(), 303, "Identificador no encontrado",
+                                    identificador.TokenLiteral(), UnknownIdentifier,
+                                    new String[]{identificador.TokenLiteral()});
+                            if (primeroPrint == null) {
+                                primeroPrint = noDefinido;
+                            }
                         }
                     }
+                }
+                if (primeroPrint != null) {
+                    return primeroPrint;
                 }
         }
         return null;
@@ -166,21 +239,31 @@ public class Evaluator {
     }
 
     private static Objeto EvaluateIdentifier(Identifier identifier, Environment env) {
-        Objeto result = (Objeto) env.get(identifier.getValue());
-        if (result == null) {
-            return NewError(UnknownIdentifier, new String[]{identifier.getValue()});
+        // Solo las variables (Objeto) se resuelven; etiquetas y marcas BEGIN/END cuentan como no definidas
+        Object guardado = env.get(identifier.getValue());
+        if (!(guardado instanceof Objeto)) {
+            // Nueva firma: 303 con la línea del identificador
+            return NewError(identifier.getLine(), 303, "Identificador no encontrado", identifier.getValue(),
+                    UnknownIdentifier, new String[]{identifier.getValue()});
         }
-        return result;
+        return (Objeto) guardado;
     }
 
     private static Objeto EvaluateIfExpression(If si, Environment env) {
         assert si != null :
                 "El if es nulo";
         Objeto condition = Evaluate(si.getCondition(), env);
-        assert condition != null :
-                "La condicion es nula";
+        // Condición null (parser) o Errado (ya registrado): sin error nuevo; IsTruthy elige la consecuencia como hoy
+        if (condition != null) {
+            assert condition != null :
+                    "La condicion es nula";
+        }
 
         if (IsTruthy(condition)) {
+            // Consecuencia null del parser: no hay nada que evaluar
+            if (si.getConsequence() == null) {
+                return null;
+            }
             assert si.getConsequence() != null :
                     "La consecuencia es null";
             return Evaluate(si.getConsequence(), env);
@@ -191,21 +274,27 @@ public class Evaluator {
         }
     }
 
-    private static Objeto EvaluateInfixExpression(String operator, Objeto left, Objeto right) {
+    // Se recibe el nodo Infix para dar la línea a los 301/302
+    private static Objeto EvaluateInfixExpression(Infix nodo, String operator, Objeto left, Objeto right) {
         if (left.Type() == ObjectType.INTEGERS && right.Type() == ObjectType.INTEGERS) {
-            return EvaluateIntegerInfixExpression(operator, left, right);
+            return EvaluateIntegerInfixExpression(nodo, operator, left, right);
         } else if (operator.equals("=") || operator.equals("EQ")) {
             return ToBooleanObject(left == right);
         } else if (operator.equals("/=") || operator.equals("NE")) {
             return ToBooleanObject(left != right);
         } else if (left.Type() != right.Type()) {
-            return NewError(TypeMismatchError, new String[]{left.Type().toString(), operator, right.Type().toString()});
+            String[] args = new String[]{left.Type().toString(), operator, right.Type().toString()};
+            return NewError(nodo.getLine(), 301, "Discrepancia de tipos: " + String.join(" ", args), operator,
+                    TypeMismatchError, args);
         } else {
-            return NewError(UnknownPrefixOperation, new String[]{left.Type().toString(), operator, right.Type().toString()});
+            String[] args = new String[]{left.Type().toString(), operator, right.Type().toString()};
+            return NewError(nodo.getLine(), 302, "Operador inválido: " + String.join(" ", args), operator,
+                    UnknownPrefixOperation, args);
         }
     }
 
-    private static Objeto EvaluateIntegerInfixExpression(String operator, Objeto left, Objeto right) {
+    // Se recibe el nodo Infix para dar la línea al 302
+    private static Objeto EvaluateIntegerInfixExpression(Infix nodo, String operator, Objeto left, Objeto right) {
         int leftValue = ((Entero) left).getValue();
         int rigthValue = ((Entero) right).getValue();
 
@@ -237,40 +326,50 @@ public class Evaluator {
             case "<=":
                 return ToBooleanObject(leftValue <= rigthValue);
             default:
-                return NewError(UnknownPrefixOperation, new String[]{left.Type().toString(), operator, right.Type().toString()});
+                String[] args = new String[]{left.Type().toString(), operator, right.Type().toString()};
+                return NewError(nodo.getLine(), 302, "Operador inválido: " + String.join(" ", args), operator,
+                        UnknownPrefixOperation, args);
         }
     }
 
-    private static Objeto EvaluateMinusOperatorExpression(Objeto right) {
+    // Se recibe el nodo Prefix para dar la línea al 302
+    private static Objeto EvaluateMinusOperatorExpression(Prefix nodo, Objeto right) {
         if (!(right instanceof Entero)) {
-            return NewError(UnknownPrefixOperation, new String[]{"-", right.Type().toString()});
+            String[] args = new String[]{"-", right.Type().toString()};
+            return NewError(nodo.getLine(), 302, "Operador inválido: " + String.join(" ", args), "-",
+                    UnknownPrefixOperation, args);
         } else {
             Entero entero = (Entero) right;
             return new Entero(-entero.getValue());
         }
     }
 
-    private static Objeto EvaluatePrefixExpression(String operator, Objeto right) {
+    // Se recibe el nodo Prefix para dar la línea al 302
+    private static Objeto EvaluatePrefixExpression(Prefix nodo, String operator, Objeto right) {
 
         switch (operator) {
             case "!":
                 return EvaluateBangOperatorExpression(right);
             case "-":
-                return EvaluateMinusOperatorExpression(right);
+                return EvaluateMinusOperatorExpression(nodo, right);
             default:
-                return NewError(UnknownPrefixOperation, new String[]{operator, right.Type().toString()});
+                String[] args = new String[]{operator, right.Type().toString()};
+                return NewError(nodo.getLine(), 302, "Operador inválido: " + String.join(" ", args), operator,
+                        UnknownPrefixOperation, args);
         }
     }
 
     private static Objeto EvaluateProgram(Program program, Environment env) {
         Objeto result = null;
+        Objeto primerError = null;
+        // Ya no corta en el primer Errado: recorre todo (BEGIN/END llegan a env) y devuelve el primero
         for (Statement statement : program.statements) {
             result = Evaluate(statement, env);
-            if (result instanceof Errado) {
-                return result;
+            if (result instanceof Errado && primerError == null) {
+                primerError = result;
             }
         }
-        return result;
+        return primerError != null ? primerError : result;
     }
 
     private static Objeto EvaluateStatement(Statement statement, Environment env) {
@@ -279,14 +378,18 @@ public class Evaluator {
                 if (env.get("BEGIN") == null) {
                     env.put("BEGIN", "BEGIN");
                 } else {
-                    return NewError(AlreadyBegin, new String[]{});
+                    // 305 con la línea del BEGIN repetido
+                    return NewError(statement.getLine(), 305, "No puede haber más de una sentencia BEGIN por archivo",
+                            "BEGIN", AlreadyBegin, new String[]{});
                 }
                 break;
             case "END":
                 if (env.get("END") == null) {
                     env.put("END", "END");
                 } else {
-                    return NewError(AlreadyEnded, new String[]{});
+                    // 306 con la línea del END repetido
+                    return NewError(statement.getLine(), 306, "No puede haber más de una sentencia END por archivo",
+                            "END", AlreadyEnded, new String[]{});
                 }
                 break;
         }
@@ -312,8 +415,10 @@ public class Evaluator {
         return true;
     }
 
-    private static Errado NewError(String message, String[] args) {
+    // Arma el mismo Errado que antes (mismo Inspect()) y registra su Mensaje; único sitio de registro
+    private static Errado NewError(int linea, int codigo, String texto, String lexema, String message, String[] args) {
         hasErrors = true;
+        mensajes.add(Mensaje.Error(linea, codigo, texto, lexema));
         for (Object obj : args) {
             message += " " + obj.toString();
         }

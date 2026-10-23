@@ -7,6 +7,8 @@ public class Token {
 
     private MingolToken TokenType;
     private String Literal;
+    // Línea física donde empieza el token; 0 si se creó fuera del lexer
+    private int line;
 
     public Token(MingolToken TokenType, String Literal) {
         this.TokenType = TokenType;
@@ -19,6 +21,16 @@ public class Token {
 
     public String getLiteral() {
         return Literal;
+    }
+
+    // Línea física del token (la asigna el lexer)
+    public int getLine() {
+        return line;
+    }
+
+    // La usa Lexer.NextToken para marcar la línea del token
+    public void setLine(int line) {
+        this.line = line;
     }
 
     public String Tuple() {

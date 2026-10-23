@@ -15,6 +15,11 @@ public class Statement implements ASTNode{
         return token.getLiteral();
     }
 
+    // Línea física del nodo (la de su token); 0 si no tiene token
+    public int getLine() {
+        return token == null ? 0 : token.getLine();
+    }
+
     @Override
     public String toString() {
         return token.getTokenType().toString();

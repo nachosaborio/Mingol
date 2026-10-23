@@ -1,0 +1,2520 @@
+// Arnés de la spec mingol-archivo-errores-fix (área 1: archivo de errores).
+// Clase sin paquete, como RunTestProyecto y PruebasCriticos. Se compila contra build\classes y se
+// ejecuta desde una carpeta temporal ($env:TEMP\mingol-errores): todos los archivos se crean ahí.
+//
+// Modos:
+//   ejemplos      -> tarea 1: Property 1 (Bug Condition) sobre t1..t13, c1, c6 y e8, más el borde
+//                    de la causa 4 (-ea con el AST parcial de t7 y e8) y la revisión de las causas 1..8.
+//   hijo <id> <argumento> [evaluar] -> interno: un caso aislado (TestProyecto por reflexión, nunca main).
+//   capturar [--sobrescribir] -> tarea 2: guarda en %TEMP%\mingol-errores-golden\ el comportamiento del
+//                    código SIN arreglar para las semillas 1..200 y t1..t13, c1, c6, e8.
+//   preservacion [--sin-normalizar] -> tarea 2: Property 2 contra la captura. --sin-normalizar desactiva
+//                    el cambio tabulador -> espacio (solo para la corrida de control antes del arreglo).
+//                    Tarea 3: además, en TODOS los casos, Property 3 (GetErrors() idéntico, correspondencia
+//                    con GetMensajes() por reflexión, Inspect() del evaluador), 3.11, R6 y R7.
+//   hijopres <archivo> <argumento> -> interno de capturar/preservacion (un caso en su carpeta).
+//   hijoreglas    -> interno de preservacion (tarea 3): 3.11 y los arreglos originales (R6).
+//   unitarias     -> tarea 4.8 (en proceso): Mensaje, ArchivoErrores, NombrePrograma/RutaA68/MismoArchivo,
+//                    líneas de tokens del Lexer, GetMensajes() de e8 y el Evaluator.
+//   propiedades   -> tarea 4.8: semillas 1..200 en hijos; formato y orden (Property 1), independencia
+//                    (decisión 4) y valor inicial (2.16, 3.11).
+//   main          -> tarea 4.8: Mingol.main en hijos con entorno controlado (A68G = eco java.exe,
+//                    PATH = C:\Windows\System32): t4, e4 y T10 invocan el eco; t3 y t7 no.
+//
+// Seguridad (R8): cada TestProyecto y cada main corre en un hijo con -Xmx256m, waitFor(10 s) y
+// destroyForcibly. main solo se lanza en el modo main, si existe Mingol.EjecutarA68g, con el entorno
+// vaciado. Ningún .bat/.cmd se crea ni se ejecuta.
+import Errores.ArchivoErrores; // Unitarias de la tarea 4.8
+import Errores.Mensaje; // Unitarias de la tarea 4.8
+import Parser.ExpressionStatement; // Nodos para las unitarias del Evaluator
+import Parser.Identifier;
+import Parser.Infix;
+import Parser.Integral;
+import Parser.LetStatement;
+import Parser.Prefix;
+import java.nio.charset.Charset; // Salida de main en la codificación nativa
+import java.util.Comparator; // Orden del oráculo de propiedades
+import Evaluador.Environment;
+import Evaluador.Errado;
+import Evaluador.Evaluator;
+import Evaluador.Objeto;
+import Lexer.Lexer;
+import Lexer.MingolToken;
+import Lexer.Token;
+import Parser.Parser;
+import Parser.Program;
+import Parser.Statement;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+public class PruebasArchivoErrores {
+
+    // Límite de tiempo por hijo (R8)
+    private static final long LIMITE_SEGUNDOS = 10;
+
+    // Resultados del modo actual: OK/FALLA por caso
+    private static final List<String> resumen = new ArrayList<>();
+    private static int fallas = 0;
+
+    // Sangría exacta de los mensajes (decisión del usuario sobre 2.2)
+    private static final String S8 = "        ";
+
+    // Formato de una línea de mensaje (2.3 y 2.11)
+    private static final Pattern FORMATO_MENSAJE = Pattern.compile(
+            "^ {8}(ERROR \\d{3}: .+ \\[.*\\]\\.|Advertencia: instrucción no es soportada por esta versión \\[.+\\]\\.)$");
+
+    // Mensajes que hoy produce el parser para "x = 3;" (t7, t11, t12), traducidos al formato nuevo
+    private static final String[] X_IGUAL_3 = {
+        "ERROR 204: Se esperaba un token de tipo IDENT pero se obtuvo EQ [=].",
+        "ERROR 203: Token que no puede iniciar una expresión [=]."
+    };
+
+    // ------------------------------------------------------------------
+    // Casos de la sección Examples del diseño
+    // ------------------------------------------------------------------
+
+    // Un caso: fuente, ruta en disco, argumento de TestProyecto y salida esperada
+    private static class Caso {
+        String id;
+        String archivo;        // ruta relativa a la carpeta actual
+        String argumento;      // lo que recibiría main (se normaliza como main)
+        String[] lineas;
+        boolean saltoFinal;
+        String nombreErrores;  // <archivo sin carpetas ni extensión>-errores.txt, en la carpeta actual
+        String rutaA68;        // donde la deja RutaA68
+        boolean generado;      // true si sale del generador (tarea 2); los esperados de Examples no aplican
+        Map<Integer, List<String>> bajoLinea = new LinkedHashMap<>();
+        List<String> finales = new ArrayList<>();
+
+        Caso bajo(int linea, String... mensajes) {
+            bajoLinea.computeIfAbsent(linea, k -> new ArrayList<>()).addAll(Arrays.asList(mensajes));
+            return this;
+        }
+
+        Caso fin(String... mensajes) {
+            finales.addAll(Arrays.asList(mensajes));
+            return this;
+        }
+
+        // Validez esperada: ausencia de ERROR (2.6, 3.6)
+        boolean validoEsperado() {
+            for (List<String> l : bajoLinea.values()) for (String m : l) if (m.startsWith("ERROR")) return false;
+            for (String m : finales) if (m.startsWith("ERROR")) return false;
+            return true;
+        }
+
+        byte[] bytes() {
+            return (String.join("\n", lineas) + (saltoFinal ? "\n" : "")).getBytes(StandardCharsets.US_ASCII);
+        }
+
+        // Archivo esperado completo: copia numerada con un espacio y los mensajes con 8 espacios
+        List<String> esperado() {
+            List<String> r = new ArrayList<>();
+            for (int i = 1; i <= lineas.length; i++) {
+                r.add(String.format("%05d", i) + " " + lineas[i - 1]);
+                for (String m : bajoLinea.getOrDefault(i, new ArrayList<>())) r.add(S8 + m);
+            }
+            for (String m : finales) r.add(S8 + m);
+            return r;
+        }
+    }
+
+    private static Caso Nuevo(String id, String archivo, String argumento, String nombreErrores, String rutaA68,
+                              boolean saltoFinal, String... lineas) {
+        Caso c = new Caso();
+        c.id = id;
+        c.archivo = archivo;
+        c.argumento = argumento;
+        c.nombreErrores = nombreErrores;
+        c.rutaA68 = rutaA68;
+        c.saltoFinal = saltoFinal;
+        c.lineas = lineas;
+        return c;
+    }
+
+    // Caso simple: <id>.mingol en la carpeta actual
+    private static Caso Simple(String id, String... lineas) {
+        return Nuevo(id, id + ".mingol", id + ".mingol", id + "-errores.txt", id + ".a68", true, lineas);
+    }
+
+    // t1..t13 (no hay t8 en bugfix.md ni en el diseño), c1, c6 y e8 con sus esperados (diseño, Examples; D1)
+    private static List<Caso> Casos() {
+        List<Caso> l = new ArrayList<>();
+        // Borde t1: líneas 3 y 4 fijadas con lo observado del parser actual, traducido al formato nuevo
+        l.add(Simple("t1", "", "BEGIN", "INT a := 1.5;", "x = 3;", "   ", "print ( (zz) );", "END", "")
+                .bajo(3, T1_LINEA3)
+                .bajo(4, X_IGUAL_3)
+                .bajo(6, "ERROR 303: Identificador no encontrado [zz]."));
+        l.add(Simple("t2", "BEGIN", "INT a := 1;", "INT a := 2;", "print ( (b) );", "GOTO nada;", "END")
+                .bajo(3, "ERROR 304: Identificador ya declarado [a].")
+                .bajo(4, "ERROR 303: Identificador no encontrado [b].")
+                .bajo(5, "ERROR 303: Identificador no encontrado [nada]."));
+        l.add(Simple("t3", "BEGIN", "INT a := 1;", "LONG x;", "print ( (b) );", "END")
+                .bajo(3, "Advertencia: instrucción no es soportada por esta versión [LONG].")
+                .bajo(4, "ERROR 303: Identificador no encontrado [b]."));
+        l.add(Simple("t4", "BEGIN", "INT a := 1;", "print ( (a) );", "END"));
+        l.add(Simple("t5", "BEGIN", "BEGIN", "INT a := 1;", "END", "END")
+                .bajo(2, "ERROR 305: No puede haber más de una sentencia BEGIN por archivo [BEGIN].")
+                .bajo(5, "ERROR 306: No puede haber más de una sentencia END por archivo [END]."));
+        l.add(Simple("t6", "INT a := 1;", "print ( (a) );")
+                .fin("ERROR 307: No se encontró una sentencia BEGIN [BEGIN].",
+                     "ERROR 308: No se encontró una sentencia END [END]."));
+        l.add(Simple("t7", "BEGIN", "INT a := 1;", "x = 3;", "print ( (b) );", "END")
+                .bajo(3, X_IGUAL_3)
+                .bajo(4, "ERROR 303: Identificador no encontrado [b]."));
+        l.add(Simple("t9", "BEGIN", "END", "INT a := 1;", "INT a := 2;", "print ( (b) );")
+                .bajo(4, "ERROR 304: Identificador ya declarado [a].")
+                .bajo(5, "ERROR 303: Identificador no encontrado [b]."));
+        // t10: extensión en mayúsculas; sin mensajes (debe fallar solo por el separador)
+        l.add(Nuevo("t10", "T10.MINGOL", "T10.MINGOL", "T10-errores.txt", "T10.a68", true,
+                "BEGIN", "INT a := 1;", "END"));
+        // t11: carpeta con punto; el -errores.txt va en la carpeta actual, el .a68 junto al fuente
+        l.add(Nuevo("t11", "sub.dir" + File.separator + "t11.mingol", "sub.dir" + File.separator + "t11.mingol",
+                "t11-errores.txt", "sub.dir" + File.separator + "t11.a68", true,
+                "BEGIN", "x = 3;", "END")
+                .bajo(2, X_IGUAL_3));
+        // t12: invocado sin extensión (se normaliza como main a t12.mingol)
+        l.add(Nuevo("t12", "t12.mingol", "t12", "t12-errores.txt", "t12.a68", true,
+                "BEGIN", "LONG x;", "y = 3;", "END")
+                .bajo(2, "Advertencia: instrucción no es soportada por esta versión [LONG].")
+                .bajo(3, X_IGUAL_3));
+        // t13 (3.11 con valor erróneo): y cuenta como declarada aunque su valor sea un Errado
+        l.add(Simple("t13", "BEGIN", "CHAR y := zz;", "print ( (y) );", "INT y := 1;", "END")
+                .bajo(2, "ERROR 303: Identificador no encontrado [zz].")
+                .bajo(4, "ERROR 304: Identificador ya declarado [y]."));
+        l.add(Simple("c1", "BEGIN", "inicio:", "CHAR y := inicio;", "END")
+                .bajo(3, "ERROR 303: Identificador no encontrado [inicio]."));
+        l.add(Simple("c6", "BEGIN", "CHAR y := end;", "END")
+                .bajo(2, "ERROR 303: Identificador no encontrado [end]."));
+        // e8: el 204 (línea n+1 = 6) va bajo la línea 5 (D1); el 308 falso es el único del bloque final
+        l.add(Simple("e8", "BEGIN", "INT x := 1;", "IF (x) THEN", "SKIP;", "END")
+                .bajo(5, "ERROR 204: Se esperaba un token de tipo FI pero se obtuvo EOF [EOF].")
+                .fin("ERROR 308: No se encontró una sentencia END [END]."));
+        return l;
+    }
+
+    // t1, línea 3 ("INT a := 1.5;"): 201 con lexema [1.5] y lo que la recuperación actual produce
+    // después. Observado en la tarea 1: "Linea 3 Error 201: a no es un INT" y "Linea 3 Error 203: Token inválido: ;"
+    private static final String[] T1_LINEA3 = {
+        "ERROR 201: El valor inicial no corresponde al tipo INT de la variable a [1.5].",
+        "ERROR 203: Token que no puede iniciar una expresión [;]."
+    };
+
+    public static void main(String[] args) throws Exception {
+        if (args.length == 0) {
+            // Modos públicos (los internos no se listan)
+            System.err.println("Uso: PruebasArchivoErrores <ejemplos|capturar|preservacion|unitarias|propiedades|main>");
+            System.exit(2);
+        }
+        switch (args[0]) {
+            case "ejemplos":
+                Ejemplos();
+                break;
+            case "hijo":
+                // Interno: un caso aislado con límite de tiempo
+                Hijo(args.length > 1 ? args[1] : "", args.length > 2 ? args[2] : "",
+                        args.length > 3 && args[3].equals("evaluar"));
+                break;
+            case "capturar":
+                // Tarea 2: captura del comportamiento base (solo antes del arreglo)
+                Capturar(args.length > 1 && args[1].equals("--sobrescribir"));
+                break;
+            case "preservacion":
+                // Tarea 2: Property 2; la normalización del separador se desactiva solo en la corrida de control
+                Preservacion(!(args.length > 1 && args[1].equals("--sin-normalizar")));
+                break;
+            case "hijopres":
+                // Interno: un caso de captura/preservación en la carpeta actual
+                HijoPres(args.length > 2 ? args[2] : "");
+                break;
+            case "hijoreglas":
+                // Interno (tarea 3): 3.11 y los arreglos originales (R6)
+                HijoReglas();
+                break;
+            case "unitarias":
+                // Tarea 4.8: pruebas unitarias en proceso
+                Unitarias();
+                break;
+            case "propiedades":
+                // Tarea 4.8: propiedades con el generador (semillas 1..200), en hijos
+                Propiedades();
+                break;
+            case "main":
+                // Tarea 4.8: Mingol.main en hijos con entorno controlado
+                ModoMain();
+                break;
+            default:
+                System.err.println("Modo desconocido: " + args[0]);
+                System.exit(2);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Modo ejemplos (tarea 1)
+    // ------------------------------------------------------------------
+
+    private static void Ejemplos() throws Exception {
+        Path carpeta = Paths.get("").toAbsolutePath();
+        System.out.println("Carpeta de trabajo: " + carpeta);
+        // El arnés nunca trabaja dentro del repositorio (R5)
+        if (Files.exists(carpeta.resolve("build.xml")) || Files.exists(carpeta.resolve("proyecto.mingol"))) {
+            System.err.println("Se evita ejecutar en el repositorio: usar $env:TEMP\\mingol-errores");
+            System.exit(2);
+        }
+        List<Caso> casos = Casos();
+        // Escribe todos los fuentes antes de lanzar hijos (causa 7 usa c6 y t4)
+        for (Caso c : casos) {
+            Path p = carpeta.resolve(c.archivo);
+            if (p.getParent() != null) Files.createDirectories(p.getParent());
+            Files.write(p, c.bytes());
+        }
+
+        Map<String, ResultadoHijo> resultados = new LinkedHashMap<>();
+        for (Caso c : casos) {
+            resultados.put(c.id, Ejecutar(carpeta, c));
+        }
+
+        // Borde de la causa 4: Evaluator.Evaluate sobre el AST parcial, en un hijo con -ea
+        Map<String, String> bordes = new LinkedHashMap<>();
+        for (String id : new String[]{"t7", "e8"}) {
+            bordes.put(id, BordeEa(carpeta, id));
+        }
+
+        // Revisión de las causas 1..8 del diseño
+        Causas(carpeta, resultados, bordes);
+
+        System.out.println();
+        System.out.println("===== RESUMEN ejemplos =====");
+        for (String r : resumen) System.out.println(r);
+        System.out.println("Total: " + resumen.size() + ", FALLA: " + fallas + ", OK: " + (resumen.size() - fallas));
+        System.exit(fallas == 0 ? 0 : 1);
+    }
+
+    // Ejecuta un caso en un hijo y compara el -errores.txt con el esperado
+    private static ResultadoHijo Ejecutar(Path carpeta, Caso c) throws Exception {
+        Path fuente = carpeta.resolve(c.archivo);
+        Path errores = carpeta.resolve(c.nombreErrores);
+        Path a68 = carpeta.resolve(c.rutaA68);
+        // Salidas previas (incluido el nombre viejo de t11, sub-errores.txt)
+        Files.deleteIfExists(errores);
+        Files.deleteIfExists(a68);
+        if (c.id.equals("t11")) Files.deleteIfExists(carpeta.resolve("sub-errores.txt"));
+        byte[] copia = Files.readAllBytes(fuente);
+
+        ResultadoHijo r = LanzarHijo(Arrays.asList("hijo", c.id, c.argumento), carpeta, c.id, false);
+        List<String> dif = new ArrayList<>();
+        if (!r.termino) dif.add("no terminó en " + LIMITE_SEGUNDOS + " s (destroyForcibly)");
+        String exc = LineaConPrefijo(r.stdout, "EXCEPCION|");
+        if (exc != null) dif.add("excepción no controlada: " + exc);
+
+        // (a) fuente intacto byte a byte
+        boolean fuenteIntacto = Files.exists(fuente) && Arrays.equals(copia, Files.readAllBytes(fuente));
+        if (!fuenteIntacto) dif.add("el fuente cambió (" + (Files.exists(fuente) ? Files.size(fuente) : -1) + " bytes)");
+
+        // .a68 donde lo pone RutaA68, copia del fuente (cada línea + \n)
+        boolean a68Ok = false;
+        if (!Files.exists(a68)) {
+            dif.add("no existe " + c.rutaA68);
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (String l : c.lineas) sb.append(l).append("\n");
+            a68Ok = new String(Files.readAllBytes(a68), StandardCharsets.US_ASCII).equals(sb.toString());
+            if (!a68Ok) dif.add(c.rutaA68 + " no es copia del fuente");
+        }
+
+        // (h) validez = ausencia de ERROR
+        String tp = LineaConPrefijo(r.stdout, "TestProyecto=");
+        String tpEsperado = "TestProyecto=" + c.validoEsperado();
+        if (!tpEsperado.equals(tp)) dif.add("se esperaba " + tpEsperado + "; obtenido " + tp);
+        // Consistencia: TestProyecto = NOT (parser.hasErrors OR evaluator.hasErrors)
+        String he = LineaConPrefijo(r.stdout, "HASERRORS|");
+        if (tp != null && he != null) {
+            boolean p = he.contains("parser=true"), e = he.contains("evaluator=true");
+            if (tp.equals("TestProyecto=" + (p || e))) dif.add("TestProyecto inconsistente con " + he);
+        }
+
+        // (b) nombre del archivo de errores en la carpeta actual
+        boolean soloSeparador = false;
+        if (!Files.exists(errores)) {
+            String[] hay = carpeta.toFile().list((d, n) -> n.endsWith("-errores.txt"));
+            dif.add("no existe " + c.nombreErrores + " (en la carpeta hay: " + Arrays.toString(hay) + ")");
+        } else {
+            List<String> real = Files.readAllLines(errores, StandardCharsets.ISO_8859_1);
+            List<String> esperado = c.esperado();
+            ValidarFormato(c, real, dif);
+            if (!real.equals(esperado)) {
+                dif.add("contenido distinto del esperado: " + PrimeraDiferencia(esperado, real));
+                // ¿Coincide si se normaliza el tabulador que sigue al número? (t10)
+                List<String> normal = new ArrayList<>();
+                for (String l : real) normal.add(l.matches("^\\d{5}\t.*") ? l.replaceFirst("\t", " ") : l);
+                soloSeparador = normal.equals(esperado);
+                if (soloSeparador) dif.add("(normalizando el tabulador tras el número coincide: solo falla el separador)");
+            }
+        }
+
+        // t10: debe fallar SOLO por el separador; si no, regresión de críticos
+        if (c.id.equals("t10")) {
+            // Fuente alterado, sin T10.a68 o sin copia completa: lo había resuelto críticos
+            if (!fuenteIntacto || !a68Ok || !Files.exists(errores)) {
+                System.out.println("AVISO: t10 con el fuente alterado o sin T10.a68/T10-errores.txt (regresión de mingol-criticos-fix)");
+            } else if (!soloSeparador && !dif.isEmpty()) {
+                // Solo se avisa si t10 falla: con el arreglo t10 da OK y el aviso confundía
+                System.out.println("AVISO: t10 no falla solo por el separador (revisar)");
+            }
+        }
+
+        Registrar(c.id, dif, r);
+        // Huella del hijo para documentar contraejemplos
+        for (String l : r.stdout.split("\\R")) {
+            if (l.startsWith("GETERRORS|") || l.startsWith("TestProyecto=") || l.startsWith("HASERRORS|")
+                    || l.startsWith("INSPECT") || l.startsWith("MENSAJE") || l.startsWith("ENV_Y|")) {
+                System.out.println("      | " + l);
+            }
+        }
+        if (Files.exists(errores)) {
+            System.out.println("      | archivo " + c.nombreErrores + ":");
+            for (String l : Files.readAllLines(errores, StandardCharsets.ISO_8859_1)) {
+                System.out.println("      |   " + l.replace("\t", "<T>"));
+            }
+        }
+        return r;
+    }
+
+    // Formato, ubicación y orden (Property 1 c, d, e) independientes del esperado exacto
+    private static void ValidarFormato(Caso c, List<String> real, List<String> dif) {
+        int n = c.lineas.length;
+        int linea = 0;
+        List<String> errores = new ArrayList<>();
+        int ultimaCategoria = -1;
+        boolean vistoFinal = false;
+        for (int i = 0; i < real.size(); i++) {
+            String l = real.get(i);
+            String numerada = (linea < n) ? String.format("%05d", linea + 1) + " " + c.lineas[linea] : null;
+            if (numerada != null && l.equals(numerada)) {
+                linea++;
+                ultimaCategoria = -1;
+                continue;
+            }
+            if (!FORMATO_MENSAJE.matcher(l).matches()) {
+                errores.add("línea " + (i + 1) + " del archivo sin formato válido: [" + l.replace("\t", "<T>") + "]");
+                continue;
+            }
+            String t = l.trim();
+            boolean es307o308 = t.startsWith("ERROR 307") || t.startsWith("ERROR 308");
+            // El bloque final (307/308) empieza su propio orden y va al final, sin nada después
+            if (es307o308 && !vistoFinal) {
+                vistoFinal = true;
+                ultimaCategoria = -1;
+            }
+            if (vistoFinal && !es307o308) errores.add("después de 307/308 hay [" + t + "]");
+            if (es307o308 && linea != n) errores.add("307/308 antes de la última línea: [" + t + "]");
+            int cat = Categoria(l);
+            if (cat < ultimaCategoria) errores.add("categorías desordenadas en [" + t + "]");
+            ultimaCategoria = cat;
+        }
+        if (linea != n) errores.add("copia numerada incompleta o con otro separador: " + linea + " de " + n + " líneas");
+        if (!errores.isEmpty()) {
+            dif.add("formato: " + errores.get(0) + (errores.size() > 1 ? " (y " + (errores.size() - 1) + " más)" : ""));
+        }
+    }
+
+    // Orden por categoría: léxico 1xx, sintáctico 2xx, semántico 3xx, advertencia
+    private static int Categoria(String l) {
+        String t = l.trim();
+        if (t.startsWith("Advertencia")) return 4;
+        return t.charAt(6) - '0';
+    }
+
+    // Borde de la causa 4: hijo con -ea que fuerza Evaluator.Evaluate sobre el AST parcial
+    private static String BordeEa(Path carpeta, String id) throws Exception {
+        ResultadoHijo r = LanzarHijo(Arrays.asList("hijo", id, id + ".mingol", "evaluar"), carpeta, id + "-ea", true);
+        String eval = LineaConPrefijo(r.stdout, "EVAL|");
+        List<String> dif = new ArrayList<>();
+        if (!r.termino) dif.add("no terminó en " + LIMITE_SEGUNDOS + " s");
+        if (eval == null) {
+            dif.add("el hijo no informó el resultado de Evaluate: " + PrimeraLineaCon(r.todo(), "Exception"));
+        } else if (eval.startsWith("EVAL|EXC|")) {
+            // Detectado por el nombre de clase de la excepción, no por el texto
+            dif.add("Evaluate con -ea sobre el AST parcial lanza " + eval.substring("EVAL|EXC|".length()));
+        }
+        Registrar("borde causa 4 (-ea, AST parcial de " + id + ")", dif, r);
+        return eval == null ? "sin resultado" : eval;
+    }
+
+    // Revisión de las causas 1..8 (confirmada / refutada / no observable antes del arreglo)
+    private static void Causas(Path carpeta, Map<String, ResultadoHijo> res, Map<String, String> bordes) throws Exception {
+        System.out.println();
+        System.out.println("===== CAUSAS del diseño =====");
+        // 1: mensajes como String sin estructura (no hay GetMensajes en el parser)
+        boolean hayMensajes = Existe("Parser.Parser", "GetMensajes");
+        Causa(1, !hayMensajes, "Parser.GetMensajes() " + (hayMensajes ? "existe" : "no existe")
+                + "; GetErrors() de t3 mezcla advertencia y errores: " + LineasConPrefijo(res.get("t3").stdout, "GETERRORS|"));
+        // 2: los nodos no saben su línea
+        boolean tokenLinea = Existe("Lexer.Token", "getLine");
+        boolean stmtLinea = Existe("Parser.Statement", "getLine");
+        Causa(2, !tokenLinea && !stmtLinea, "Token.getLine " + tokenLinea + ", Statement.getLine " + stmtLinea);
+        // 3: el evaluador corta en el primer Errado y 308 falso (t2, t5, t9)
+        String t2 = Contenido(carpeta, "t2-errores.txt"), t5 = Contenido(carpeta, "t5-errores.txt"),
+                t9 = Contenido(carpeta, "t9-errores.txt");
+        boolean c3 = t2.contains("Error 308") && !t2.contains("Error 304") && t5.contains("Error 308")
+                && t9.contains("Error 304") && !t9.contains("Error 303");
+        Causa(3, c3, "t2 con 308 sin 304: " + (t2.contains("Error 308") && !t2.contains("Error 304"))
+                + "; t5 con 308: " + t5.contains("Error 308") + "; t9 con 304 y sin 303: " + (t9.contains("Error 304") && !t9.contains("Error 303")));
+        // 4: el evaluador no tolera el AST parcial (con -ea)
+        boolean c4 = bordes.values().stream().anyMatch(b -> b.startsWith("EVAL|EXC|"));
+        Causa(4, c4, "t7: " + bordes.get("t7") + "; e8: " + bordes.get("e8"));
+        // 5: cascadas al seguir evaluando: no se puede observar antes del arreglo (el evaluador no sigue)
+        // Con todos los casos en OK la causa 5 ya está resuelta (el evaluador sigue sin cascadas)
+        System.out.println(fallas == 0
+                ? "CAUSA 5: resuelta (todos los casos dan OK: el evaluador sigue sin cascadas)"
+                : "CAUSA 5: no observable antes del arreglo (EvaluateProgram corta en el primer Errado)");
+        // 6: nombre con split sobre la ruta (t11)
+        boolean c6 = Files.exists(carpeta.resolve("sub-errores.txt")) && !Files.exists(carpeta.resolve("t11-errores.txt"));
+        Causa(6, c6, "sub-errores.txt existe: " + Files.exists(carpeta.resolve("sub-errores.txt"))
+                + "; t11-errores.txt existe: " + Files.exists(carpeta.resolve("t11-errores.txt")));
+        // 7: hasErrors estático sin reinicio (en un hijo: c6 con error y luego t4 válido)
+        ResultadoHijo r7 = LanzarHijo(Arrays.asList("hijo", "causa7", ""), carpeta, "causa7", false);
+        String h7 = LineaConPrefijo(r7.stdout, "CAUSA7|");
+        Causa(7, h7 != null && h7.contains("despues_t4=true") && h7.contains("reiniciar=false"), String.valueOf(h7));
+        // 8: LetStatement guarda el Errado del valor inicial y lo descarta (c1, c6, t13)
+        String y1 = LineaConPrefijo(res.get("c1").stdout, "ENV_Y|");
+        String y6 = LineaConPrefijo(res.get("c6").stdout, "ENV_Y|");
+        boolean c8 = y1 != null && y1.startsWith("ENV_Y|Errado|") && y6 != null && y6.startsWith("ENV_Y|Errado|")
+                && !Contenido(carpeta, "c6-errores.txt").contains("303");
+        Causa(8, c8, "c1 " + y1 + "; c6 " + y6 + "; 303 en c6-errores.txt: " + Contenido(carpeta, "c6-errores.txt").contains("303"));
+    }
+
+    private static void Causa(int n, boolean confirmada, String evidencia) {
+        // Si el bug ya no se reproduce y todos los casos dan OK, la causa está resuelta (informativo)
+        String estado = confirmada ? "confirmada" : (fallas == 0 ? "resuelta" : "NO CONFIRMADA (revisar)");
+        System.out.println("CAUSA " + n + ": " + estado + " - " + evidencia);
+    }
+
+    private static boolean Existe(String clase, String metodo) throws Exception {
+        for (Method m : Class.forName(clase).getMethods()) if (m.getName().equals(metodo)) return true;
+        return false;
+    }
+
+    private static String Contenido(Path carpeta, String nombre) throws IOException {
+        Path p = carpeta.resolve(nombre);
+        return Files.exists(p) ? new String(Files.readAllBytes(p), StandardCharsets.ISO_8859_1) : "";
+    }
+
+    // ------------------------------------------------------------------
+    // Tarea 2: generador de programas (diseño, Property-Based Tests)
+    // ------------------------------------------------------------------
+
+    // Hijos en paralelo para no exceder tiempos (cada uno sigue con su límite de 10 s, R8)
+    private static final int HILOS = 4;
+    // La huella completa de un caso cabe de sobra en 1 MB
+    private static final int MAX_HUELLA = 1024 * 1024;
+
+    // Nombres en minúsculas, no reservados; variables y etiquetas disjuntas
+    private static final String[] VARS_G = {"a", "b", "c", "x", "y", "total"};
+    private static final String[] ETIQ_G = {"inicio", "fin", "otra"};
+
+    // Programa de la semilla s (determinista: la preservación lo vuelve a generar y compara los bytes).
+    // La mitad de las semillas tiende a programas sin mensajes (repertorio "limpio"), para que Property 2
+    // tenga muchos casos; la otra mitad mezcla todo el repertorio del diseño. Qué programa es
+    // preservable no lo decide el generador sino lo observado en la captura (sin mensajes).
+    private static Caso Generar(int semilla) {
+        // Semilla mezclada: con new Random(s) y s consecutivos pequeños el primer nextBoolean() sale igual
+        Random r = new Random(semilla * 0x9E3779B97F4A7C15L + 0x632BE59BD9B4E019L);
+        String id = String.format("g%03d", semilla);
+        boolean limpio = r.nextBoolean();
+        List<String> l = new ArrayList<>();
+        List<String> declaradas = new ArrayList<>();
+        List<String> etiquetas = new ArrayList<>();
+
+        // Antes de BEGIN: líneas vacías o con espacios
+        int previas = r.nextInt(3);
+        for (int i = 0; i < previas; i++) l.add(Blanca(r));
+        // BEGIN presente (lo normal), ausente o repetido
+        int begins = limpio ? 1 : CuantasMarcas(r);
+        for (int i = 0; i < begins; i++) l.add(Sangria(r) + "BEGIN");
+
+        int lineas = 1 + r.nextInt(15);
+        for (int i = 0; i < lineas; i++) {
+            if (limpio) LineaLimpia(r, l, declaradas, etiquetas);
+            else LineaCualquiera(r, l, etiquetas);
+        }
+
+        int ends = limpio ? 1 : CuantasMarcas(r);
+        for (int i = 0; i < ends; i++) l.add(Sangria(r) + "END");
+        int finales = r.nextInt(3);
+        for (int i = 0; i < finales; i++) l.add(Blanca(r));
+
+        boolean saltoFinal = r.nextBoolean();
+        Caso c = Nuevo(id, id + ".mingol", id + ".mingol", id + "-errores.txt", id + ".a68", saltoFinal,
+                l.toArray(new String[0]));
+        c.generado = true;
+        return c;
+    }
+
+    // 1 casi siempre; a veces 0 (ausente) o 2 (repetido)
+    private static int CuantasMarcas(Random r) {
+        int k = r.nextInt(10);
+        return k == 0 ? 0 : (k == 1 ? 2 : 1);
+    }
+
+    private static String ElegirG(Random r, String[] opciones) {
+        return opciones[r.nextInt(opciones.length)];
+    }
+
+    // Blancos redundantes al inicio (REQ-LINE-06)
+    private static String Sangria(Random r) {
+        return r.nextInt(4) == 0 ? "  " : "";
+    }
+
+    // Línea vacía o con solo espacios (se copian tal cual, 3.2)
+    private static String Blanca(Random r) {
+        return r.nextBoolean() ? "" : "   ";
+    }
+
+    // Repertorio que hoy no produce mensajes: variables nuevas, print de declaradas, etiqueta antes
+    // de su GOTO, IF con FI y cuerpo de una línea, líneas vacías y con espacios
+    private static void LineaLimpia(Random r, List<String> l, List<String> declaradas, List<String> etiquetas) {
+        switch (r.nextInt(7)) {
+            case 0:
+            case 1: {
+                // Declaración de una variable todavía no declarada
+                String v = null;
+                for (String cand : VARS_G) if (!declaradas.contains(cand)) { v = cand; break; }
+                if (v == null) { l.add(Blanca(r)); return; }
+                declaradas.add(v);
+                l.add(Sangria(r) + "INT " + v + " := " + r.nextInt(1000) + ";");
+                return;
+            }
+            case 2:
+                if (declaradas.isEmpty()) { l.add(Blanca(r)); return; }
+                l.add(Sangria(r) + "print ( (" + declaradas.get(r.nextInt(declaradas.size())) + ") );");
+                return;
+            case 3: {
+                // Etiqueta nueva y, a veces, su GOTO después
+                String e = null;
+                for (String cand : ETIQ_G) if (!etiquetas.contains(cand)) { e = cand; break; }
+                if (e == null) { l.add("GOTO " + etiquetas.get(r.nextInt(etiquetas.size())) + ";"); return; }
+                etiquetas.add(e);
+                l.add(e + ":");
+                if (r.nextBoolean()) l.add(Sangria(r) + "GOTO " + e + ";");
+                return;
+            }
+            case 4:
+                if (declaradas.isEmpty()) { l.add(Blanca(r)); return; }
+                String v = declaradas.get(r.nextInt(declaradas.size()));
+                l.add(Sangria(r) + "IF ( " + v + " ) THEN");
+                l.add("  print ( (" + v + ") );");
+                l.add("FI;");
+                return;
+            default:
+                l.add(Blanca(r));
+        }
+    }
+
+    // Repertorio completo del diseño: declaraciones (también repetidas), CHAR y := zz;, print de
+    // variables definidas o no, GOTO, etiquetas y su uso como identificador, LONG x;, x = 3;,
+    // INT a := 1.5;, @, constante fuera de rango, IF con y sin FI, líneas vacías y con espacios
+    private static void LineaCualquiera(Random r, List<String> l, List<String> etiquetas) {
+        int caso = r.nextInt(16);
+        switch (caso) {
+            case 0:
+            case 1:
+                l.add(Sangria(r) + "INT " + ElegirG(r, VARS_G) + " := " + r.nextInt(1000) + ";");
+                return;
+            case 2:
+                l.add("CHAR y := zz;");
+                return;
+            case 3:
+            case 4:
+                l.add(Sangria(r) + "print ( (" + (r.nextInt(4) == 0 ? "zz" : ElegirG(r, VARS_G)) + ") );");
+                return;
+            case 5:
+                l.add("GOTO " + ElegirG(r, ETIQ_G) + ";");
+                return;
+            case 6: {
+                String e = ElegirG(r, ETIQ_G);
+                etiquetas.add(e);
+                l.add(e + ":");
+                return;
+            }
+            case 7: {
+                // Etiqueta usada como identificador (en print o como valor inicial)
+                String e = etiquetas.isEmpty() ? ElegirG(r, ETIQ_G) : etiquetas.get(r.nextInt(etiquetas.size()));
+                l.add(r.nextBoolean() ? "print ( (" + e + ") );" : "CHAR w := " + e + ";");
+                return;
+            }
+            case 8:
+                l.add("LONG x;");
+                return;
+            case 9:
+                l.add("x = 3;");
+                return;
+            case 10:
+                l.add("INT a := 1.5;");
+                return;
+            case 11:
+                l.add("@");
+                return;
+            case 12:
+                // Fuera de rango: no convertible (12345678901) o fuera de -32768..32767 (99999)
+                l.add("INT " + ElegirG(r, VARS_G) + " := " + (r.nextBoolean() ? "12345678901" : "99999") + ";");
+                return;
+            case 13:
+            case 14: {
+                // IF con FI (case 13) o sin FI (case 14), con ELSE opcional
+                boolean sinFi = (caso == 14);
+                String v = ElegirG(r, VARS_G);
+                l.add("IF ( " + v + " ) THEN");
+                l.add("  print ( (" + v + ") );");
+                if (r.nextBoolean()) {
+                    l.add("ELSE");
+                    l.add("  print ( \"no\" );");
+                }
+                // case 13 cierra con FI; case 14 lo omite (IF sin FI)
+                if (!sinFi) l.add("FI;");
+                return;
+            }
+            default:
+                l.add(Blanca(r));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Tarea 2: modo capturar (código SIN arreglar)
+    // ------------------------------------------------------------------
+
+    // Casos de captura: t1..t13, c1, c6, e8 y las semillas 1..200
+    private static List<Caso> CasosCaptura() {
+        List<Caso> casos = new ArrayList<>(Casos());
+        for (int s = 1; s <= 200; s++) casos.add(Generar(s));
+        return casos;
+    }
+
+    private static void Capturar(boolean sobrescribir) throws Exception {
+        Path carpeta = CarpetaSegura();
+        Path golden = CarpetaGolden();
+        // La captura es la referencia de la tarea 4.10: no se pisa sin pedirlo
+        if (Files.exists(golden)) {
+            if (!sobrescribir) {
+                System.err.println("Ya existe la captura " + golden + ". No se regenera (usar --sobrescribir solo antes del arreglo).");
+                System.exit(2);
+            }
+            BorrarArbol(golden);
+        }
+        Files.createDirectories(golden);
+        Path trabajo = carpeta.resolve("captura");
+        BorrarArbol(trabajo);
+        Path logs = carpeta.resolve("logs-captura");
+        BorrarArbol(logs);
+        System.out.println("Captura en: " + golden);
+        System.out.println("Carpeta de trabajo: " + trabajo);
+
+        List<Caso> casos = CasosCaptura();
+        Map<String, byte[]> fuentes = new LinkedHashMap<>();
+        for (Caso c : casos) fuentes.put(c.id, c.bytes());
+        Map<String, ResultadoHijo> res = CorrerCasos(casos, fuentes, trabajo, logs);
+
+        StringBuilder indice = new StringBuilder();
+        Map<String, List<String>> metas = new LinkedHashMap<>();
+        int preservables = 0, preservablesGenerados = 0;
+        for (Caso c : casos) {
+            ResultadoHijo r = res.get(c.id);
+            List<String> dif = new ArrayList<>();
+            ProblemasDeEjecucion(r, dif);
+            // Se guarda todo (también con problemas): fuente, huella y archivos que dejó TestProyecto
+            Path destino = golden.resolve(c.id);
+            Files.createDirectories(destino.resolve("archivos"));
+            Files.write(destino.resolve("fuente.bin"), fuentes.get(c.id));
+            List<String> meta = LineasMeta(r.stdout);
+            Files.write(destino.resolve("meta.txt"), meta, StandardCharsets.UTF_8);
+            Path dir = trabajo.resolve(c.id);
+            for (String rel : ArchivosRec(dir)) {
+                Path d = destino.resolve("archivos").resolve(rel);
+                if (d.getParent() != null) Files.createDirectories(d.getParent());
+                Files.copy(dir.resolve(rel), d);
+            }
+            indice.append(c.id).append('\t').append(c.archivo).append('\t').append(c.argumento).append('\t')
+                    .append(c.generado ? "generado" : "fijo").append('\n');
+            metas.put(c.id, meta);
+            boolean p = Preservable(c.archivo, meta);
+            if (p) {
+                preservables++;
+                if (c.generado) preservablesGenerados++;
+                // Sin mensajes: el -errores.txt es solo la copia numerada (con tabulador en F)
+                ComprobarSoloCopia(c, destino.resolve("archivos"), dif);
+            }
+            Registrar("captura " + c.id + (p ? " (sin mensajes)" : ""), dif, r);
+        }
+        Files.write(golden.resolve("indice.txt"), indice.toString().getBytes(StandardCharsets.UTF_8));
+
+        ObservacionesCaptura(metas, golden);
+
+        System.out.println();
+        System.out.println("Casos capturados: " + casos.size() + "; sin mensajes (isBugCondition falso): " + preservables
+                + " (generados: " + preservablesGenerados + " de 200)");
+        if (preservablesGenerados < 20) System.out.println("AVISO: pocas semillas sin mensajes; revisar el generador");
+        ImprimirResumen("capturar");
+    }
+
+    // isBugCondition falso según lo observado en F: ningún mensaje (parser sin cadenas, evaluador sin
+    // errores, TestProyecto=true) y ningún punto en las carpetas de la ruta
+    private static boolean Preservable(String archivo, List<String> meta) {
+        Path padre = Paths.get(archivo).getParent();
+        boolean puntoEnCarpetas = padre != null && padre.toString().contains(".");
+        return !puntoEnCarpetas
+                && meta.contains("GETERRORS_TOTAL|0")
+                && meta.contains("TESTPROYECTO|true")
+                && meta.stream().anyMatch(m -> m.startsWith("HASERRORS|") && m.endsWith("|evaluator=false"));
+    }
+
+    // El -errores.txt de un programa sin mensajes es exactamente "%05d<TAB>línea" por cada línea
+    private static void ComprobarSoloCopia(Caso c, Path archivos, List<String> dif) throws IOException {
+        Path errores = archivos.resolve(c.nombreErrores);
+        if (!Files.exists(errores)) {
+            dif.add("no existe " + c.nombreErrores);
+            return;
+        }
+        // Líneas tal como las lee TestProyecto (BufferedReader): un "" final sin salto no cuenta como línea
+        List<String> lineas = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new java.io.StringReader(new String(c.bytes(), StandardCharsets.ISO_8859_1)))) {
+            String s;
+            while ((s = br.readLine()) != null) lineas.add(s);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lineas.size(); i++) sb.append(String.format("%05d", i + 1)).append('\t').append(lineas.get(i)).append('\n');
+        String real = new String(Files.readAllBytes(errores), StandardCharsets.ISO_8859_1);
+        if (!real.equals(sb.toString())) dif.add(c.nombreErrores + " no es solo la copia numerada: [" + Escapar(real) + "]");
+    }
+
+    // Lo que la tarea 2 pide observar en el código sin arreglar
+    private static void ObservacionesCaptura(Map<String, List<String>> metas, Path golden) throws IOException {
+        System.out.println();
+        System.out.println("===== OBSERVACIONES (código sin arreglar) =====");
+        // t4 y t10: solo la copia numerada y TestProyecto=true
+        for (String id : new String[]{"t4", "t10"}) {
+            List<String> dif = new ArrayList<>();
+            List<String> meta = metas.get(id);
+            String archivo = id.equals("t10") ? "T10.MINGOL" : id + ".mingol";
+            if (meta == null || !Preservable(archivo, meta)) dif.add(id + " con mensajes o TestProyecto distinto de true: " + meta);
+            Registrar("observación " + id + " sin mensajes y TestProyecto=true", dif, null);
+        }
+        // Nombres de salida (3.7, 3.8, 2.14)
+        Observar(golden, "t1", new String[]{"t1-errores.txt", "t1.a68"}, null);
+        Observar(golden, "t12", new String[]{"t12-errores.txt", "t12.a68"}, null);
+        Observar(golden, "t10", new String[]{"T10-errores.txt", "T10.a68"}, "T10.MINGOL");
+    }
+
+    // Existen los archivos esperados y, si se indica, el fuente quedó intacto
+    private static void Observar(Path golden, String id, String[] archivos, String fuente) throws IOException {
+        List<String> dif = new ArrayList<>();
+        Path dir = golden.resolve(id).resolve("archivos");
+        for (String a : archivos) if (!Files.exists(dir.resolve(a))) dif.add("no existe " + a + " (hay: " + ArchivosRec(dir) + ")");
+        if (fuente != null) {
+            byte[] original = Files.readAllBytes(golden.resolve(id).resolve("fuente.bin"));
+            if (!Files.exists(dir.resolve(fuente)) || !Arrays.equals(original, Files.readAllBytes(dir.resolve(fuente)))) {
+                dif.add("el fuente " + fuente + " cambió");
+            }
+        }
+        Registrar("observación " + id + " -> " + String.join(", ", archivos) + (fuente != null ? ", fuente intacto" : ""), dif, null);
+    }
+
+    // ------------------------------------------------------------------
+    // Tarea 2: modo preservacion (Property 2)
+    // ------------------------------------------------------------------
+
+    private static void Preservacion(boolean normalizar) throws Exception {
+        Path carpeta = CarpetaSegura();
+        Path golden = CarpetaGolden();
+        Path indice = golden.resolve("indice.txt");
+        if (!Files.exists(indice)) {
+            System.err.println("No existe la captura " + indice + ": correr antes 'capturar' en el código sin arreglar.");
+            System.exit(2);
+        }
+        Path trabajo = carpeta.resolve("preservacion");
+        BorrarArbol(trabajo);
+        Path logs = carpeta.resolve("logs-preservacion");
+        BorrarArbol(logs);
+        System.out.println("Captura: " + golden);
+        System.out.println("Carpeta de trabajo: " + trabajo);
+        System.out.println("Normalización tabulador -> espacio: " + (normalizar ? "activada" : "DESACTIVADA (corrida de control)"));
+
+        // Tarea 3: se corren TODOS los casos capturados; Property 2 solo en los de isBugCondition falso,
+        // Property 3 (detección) en todos
+        List<Caso> casos = new ArrayList<>();
+        Map<String, byte[]> fuentes = new LinkedHashMap<>();
+        Map<String, List<String>> metasCapt = new LinkedHashMap<>();
+        Map<String, Boolean> preservable = new LinkedHashMap<>();
+        int omitidos = 0;
+        for (String linea : Files.readAllLines(indice, StandardCharsets.UTF_8)) {
+            if (linea.isBlank()) continue;
+            String[] p = linea.split("\t");
+            List<String> meta = Files.readAllLines(golden.resolve(p[0]).resolve("meta.txt"), StandardCharsets.UTF_8);
+            Caso c = new Caso();
+            c.id = p[0];
+            c.archivo = p[1];
+            c.argumento = p[2];
+            c.generado = p[3].equals("generado");
+            casos.add(c);
+            fuentes.put(c.id, Files.readAllBytes(golden.resolve(c.id).resolve("fuente.bin")));
+            metasCapt.put(c.id, meta);
+            boolean pr = Preservable(p[1], meta);
+            preservable.put(c.id, pr);
+            if (!pr) omitidos++;
+        }
+        System.out.println("Casos capturados: " + casos.size() + "; sin mensajes (Property 2): " + (casos.size() - omitidos)
+                + "; con mensajes (solo Property 3): " + omitidos);
+
+        Map<String, ResultadoHijo> res = CorrerCasos(casos, fuentes, trabajo, logs);
+
+        for (Caso c : casos) {
+            ResultadoHijo r = res.get(c.id);
+            // Property 3 en todos los casos: GetErrors(), correspondencia con GetMensajes() e Inspect()
+            List<String> difDet = new ArrayList<>();
+            ProblemasDeEjecucion(r, difDet);
+            ComprobarDeteccion(c, fuentes.get(c.id), metasCapt.get(c.id), LineasMeta(r.stdout), difDet);
+            Registrar("detección " + c.id, difDet, r);
+            if (!preservable.get(c.id)) continue;
+
+            List<String> dif = new ArrayList<>();
+            ProblemasDeEjecucion(r, dif);
+            // Control del arnés: el generador sigue siendo determinista
+            if (c.generado) {
+                int semilla = Integer.parseInt(c.id.substring(1));
+                if (!Arrays.equals(Generar(semilla).bytes(), fuentes.get(c.id))) {
+                    dif.add("el generador ya no produce el mismo fuente para la semilla " + semilla);
+                }
+            }
+            // Mismo valor de retorno: true
+            List<String> meta = LineasMeta(r.stdout);
+            if (!meta.contains("TESTPROYECTO|true")) dif.add("TestProyecto distinto de true: " + LineaConPrefijo(r.stdout, "TESTPROYECTO|"));
+
+            Path esp = golden.resolve(c.id).resolve("archivos");
+            Path obt = trabajo.resolve(c.id);
+            // Mismos archivos en las mismas ubicaciones (-errores.txt, .a68 y el fuente)
+            List<String> nEsp = ArchivosRec(esp), nObt = ArchivosRec(obt);
+            if (!nEsp.equals(nObt)) dif.add("archivos distintos: esperado " + nEsp + ", obtenido " + nObt);
+            for (String n : nEsp) {
+                if (!nObt.contains(n)) continue;
+                byte[] be = Files.readAllBytes(esp.resolve(n));
+                byte[] bo = Files.readAllBytes(obt.resolve(n));
+                if (n.endsWith("-errores.txt")) {
+                    // -errores.txt byte a byte, tras normalizar el separador (salvo en la corrida de control)
+                    byte[] esperado = normalizar ? NormalizarSeparador(be) : be;
+                    if (!Arrays.equals(esperado, bo)) {
+                        dif.add(n + " distinto: esperado [" + Escapar(new String(esperado, StandardCharsets.ISO_8859_1))
+                                + "], obtenido [" + Escapar(new String(bo, StandardCharsets.ISO_8859_1)) + "]");
+                    }
+                } else if (!Arrays.equals(be, bo)) {
+                    // .a68 igual; el fuente, además, igual al original
+                    dif.add(n + " no coincide byte a byte");
+                }
+            }
+            // Fuente sin modificar (también con .MINGOL)
+            Path fuente = obt.resolve(c.archivo);
+            if (!Files.exists(fuente) || !Arrays.equals(fuentes.get(c.id), Files.readAllBytes(fuente))) dif.add("el fuente cambió");
+            Registrar("preservación " + c.id, dif, r);
+        }
+
+        // Tarea 3: 3.11 y arreglos originales (R6), en un hijo con límite
+        ReglasEnHijo(carpeta, logs);
+        // Tarea 3: arreglos de críticos (R7): e2, e8, e9 terminan en < 10 s; c1 sin excepción
+        CasosR7(carpeta.resolve("r7"), logs);
+
+        // Comprobaciones que dependen de GetMensajes() y se saltaron (código sin arreglar)
+        if (sinMensajesParser > 0) {
+            System.out.println("AVISO: Parser.GetMensajes() no existe: se saltó la correspondencia GetErrors() <-> GetMensajes() en "
+                    + sinMensajesParser + " casos");
+        }
+        if (sinMensajesEvaluador > 0) {
+            System.out.println("AVISO: Evaluator.GetMensajes() no existe: se saltó \"Inspect() es el primer semántico del archivo\" en "
+                    + sinMensajesEvaluador + " casos");
+        }
+        System.out.println("Inspect() distintos aceptados por las excepciones de Property 3: " + inspectAceptados);
+        ImprimirResumen("preservacion");
+    }
+
+    // ------------------------------------------------------------------
+    // Tarea 3: Property 3 (detección sin cambios en parser y evaluador)
+    // ------------------------------------------------------------------
+
+    // Casos en que se saltó una comprobación porque GetMensajes() no existe (se avisa al final)
+    private static int sinMensajesParser = 0, sinMensajesEvaluador = 0, inspectAceptados = 0;
+
+    private static final Pattern LINEA_CADENA = Pattern.compile("^\tLinea (\\d+)");
+    private static final Pattern ERROR_CADENA = Pattern.compile("Error (\\d{3}): (.*)$");
+    private static final Pattern ADVERTENCIA_CADENA = Pattern.compile("ADVERTENCIA: Instruccion (.*) no soportada por esta version$");
+    private static final Pattern ESPERABA_CADENA = Pattern.compile("^Se esperaba un token de tipo (\\S+) pero se obtuvo un (\\S+)$");
+    private static final Pattern CODIGO_INSPECT = Pattern.compile("Error (\\d{3})");
+
+    // GetErrors() idéntico, correspondencia 1 a 1 con GetMensajes() e Inspect() del evaluador
+    private static void ComprobarDeteccion(Caso c, byte[] fuente, List<String> capt, List<String> nueva, List<String> dif) {
+        // GetErrors() idéntico al capturado (mismas cadenas, mismo orden)
+        List<String> eCapt = Valores(capt, "GETERRORS|"), eNueva = Valores(nueva, "GETERRORS|");
+        if (!eCapt.equals(eNueva)) {
+            dif.add("GetErrors() distinto: capturado " + eCapt + ", obtenido " + eNueva);
+        }
+        if (!Objects.equals(Valor(capt, "GETERRORS_TOTAL|"), Valor(nueva, "GETERRORS_TOTAL|"))) {
+            dif.add("GETERRORS_TOTAL distinto: " + Valor(capt, "GETERRORS_TOTAL|") + " / " + Valor(nueva, "GETERRORS_TOTAL|"));
+        }
+
+        // Correspondencia GetErrors() <-> GetMensajes() del parser (si GetMensajes() existe)
+        if (nueva.contains("MENSAJES_NO_EXISTE|parser")) {
+            sinMensajesParser++;
+        } else {
+            List<String[]> msj = Mensajes(nueva, "parser");
+            if (msj.size() != eNueva.size()) {
+                dif.add("GetMensajes() del parser con " + msj.size() + " elementos y GetErrors() con " + eNueva.size());
+            } else {
+                for (int i = 0; i < msj.size(); i++) {
+                    String d = Corresponde(Desescapar(eNueva.get(i)), msj.get(i));
+                    if (d != null) dif.add("correspondencia " + (i + 1) + ": " + d);
+                }
+            }
+        }
+
+        // Inspect() con parser sin mensajes (en la captura)
+        if (!capt.contains("GETERRORS_TOTAL|0")) return;
+        String iCapt = Valor(capt, "INSPECT|"), iNueva = Valor(nueva, "INSPECT|");
+        if (iCapt == null) {
+            dif.add("la captura no tiene INSPECT con parser sin mensajes");
+            return;
+        }
+        if (!iCapt.equals(iNueva)) {
+            String fin = Desescapar(iCapt);
+            boolean hayEnd = LineasFuente(fuente).stream().anyMatch(l -> l.trim().equals("END"));
+            boolean falso308 = fin.contains("Error 308") && hayEnd;
+            boolean end306 = iNueva != null && iNueva.equals(iCapt.replace("Error 305: No puede haber más de una sentencia END",
+                    "Error 306: No puede haber más de una sentencia END"));
+            boolean letErrado = nueva.contains("LET_ERRADO|true");
+            boolean nuevoErrado = iNueva != null && iNueva.startsWith("Errado|");
+            if (end306 || ((falso308 || letErrado) && nuevoErrado)) {
+                inspectAceptados++;
+            } else {
+                dif.add("Inspect() distinto: capturado [" + iCapt + "], obtenido [" + iNueva + "] (308 falso: " + falso308
+                        + ", valor inicial Errado: " + letErrado + ")");
+            }
+        }
+
+        // Ese Errado es el primer semántico del archivo (solo cuando existe Evaluator.GetMensajes(), tras el arreglo)
+        if (nueva.contains("MENSAJES_NO_EXISTE|evaluador")) {
+            sinMensajesEvaluador++;
+            return;
+        }
+        if (iNueva == null || !iNueva.startsWith("Errado|")) return;
+        java.util.regex.Matcher mc = CODIGO_INSPECT.matcher(Desescapar(iNueva));
+        if (!mc.find()) return;
+        String codigo = mc.group(1);
+        // 307/308 no pertenecen a ninguna línea: van al bloque final
+        if (codigo.equals("307") || codigo.equals("308")) return;
+        int n = LineasFuente(fuente).size();
+        String[] primero = null;
+        int mejor = Integer.MAX_VALUE;
+        for (String[] m : Mensajes(nueva, "evaluador")) {
+            if (!"SEMANTICO".equals(m[2])) continue;
+            int linea = Integer.parseInt(m[0]);
+            // Clave de orden del archivo: sin línea al final; fuera de rango bajo la última (D1)
+            int clave = linea == 0 ? Integer.MAX_VALUE : (linea > n ? (n >= 1 ? n : Integer.MAX_VALUE) : linea);
+            if (clave < mejor) {
+                mejor = clave;
+                primero = m;
+            }
+        }
+        if (primero == null || !codigo.equals(primero[1])) {
+            dif.add("Inspect() con código " + codigo + " no es el primer semántico del archivo ("
+                    + (primero == null ? "ninguno" : primero[1] + " en la línea " + primero[0]) + ")");
+        }
+    }
+
+    // Una cadena de GetErrors() corresponde a su Mensaje: línea, código (tabla 2.10), categoría y lexema/texto
+    // Campos del Mensaje: [linea, codigo, categoria, lexema, texto]
+    private static String Corresponde(String cadena, String[] m) {
+        java.util.regex.Matcher ml = LINEA_CADENA.matcher(cadena);
+        if (!ml.find()) return "cadena sin línea: [" + cadena + "]";
+        // Línea igual, incluida la n+1 del final del archivo
+        if (!ml.group(1).equals(m[0])) return "línea " + ml.group(1) + " en la cadena y " + m[0] + " en el Mensaje: [" + cadena + "]";
+        java.util.regex.Matcher ma = ADVERTENCIA_CADENA.matcher(cadena);
+        if (ma.find()) {
+            // ADVERTENCIA <-> categoría ADVERTENCIA, sin código, con el literal como lexema
+            if (!"ADVERTENCIA".equals(m[2]) || !"null".equals(m[1])) return "advertencia con categoría " + m[2] + " y código " + m[1];
+            if (!ma.group(1).equals(m[3])) return "advertencia con lexema [" + m[3] + "] y no [" + ma.group(1) + "]";
+            return null;
+        }
+        java.util.regex.Matcher me = ERROR_CADENA.matcher(cadena);
+        if (!me.find()) return "cadena sin código: [" + cadena + "]";
+        String viejo = me.group(1), resto = me.group(2);
+        // Traducción con la tabla 2.10
+        String nuevo;
+        String lexemaEsperado = null;
+        if (viejo.equals("205")) {
+            nuevo = "101";
+            lexemaEsperado = Lexema(resto.replaceFirst("^Token ilegal: ", ""));
+        } else if (viejo.equals("203") && resto.startsWith("conversion invalida a ")) {
+            nuevo = "102";
+            lexemaEsperado = resto.replaceFirst("^conversion invalida a (entero|real): ", "");
+        } else if (viejo.equals("203")) {
+            nuevo = "203";
+            lexemaEsperado = Lexema(resto.replaceFirst("^Token inválido: ", ""));
+        } else {
+            nuevo = viejo;
+        }
+        if (!nuevo.equals(m[1])) return "código " + viejo + " debería traducirse a " + nuevo + " y el Mensaje tiene " + m[1];
+        String cat = nuevo.charAt(0) == '1' ? "LEXICO" : nuevo.charAt(0) == '2' ? "SINTACTICO" : "SEMANTICO";
+        if (!cat.equals(m[2])) return "código " + nuevo + " con categoría " + m[2];
+        if (lexemaEsperado != null && !lexemaEsperado.equals(m[3])) {
+            return "código " + nuevo + " con lexema [" + m[3] + "] y no [" + lexemaEsperado + "]";
+        }
+        if (nuevo.equals("204")) {
+            // ExpectedTokenError y ExpectedCurrentTokenError: mismo tipo esperado y obtenido
+            java.util.regex.Matcher mt = ESPERABA_CADENA.matcher(resto);
+            if (!mt.find()) return "204 con texto inesperado: [" + resto + "]";
+            String texto = "Se esperaba un token de tipo " + mt.group(1) + " pero se obtuvo " + mt.group(2);
+            if (!texto.equals(m[4])) return "204 con texto [" + m[4] + "] y no [" + texto + "]";
+            if ((mt.group(2).equals("EOF") || mt.group(2).equals("EOL")) && !mt.group(2).equals(m[3])) {
+                return "204 con lexema [" + m[3] + "] y no [" + mt.group(2) + "]";
+            }
+        } else if (nuevo.equals("201")) {
+            String var = resto.replaceFirst(" no es un (INT|REAL|STRING)$", "");
+            String tipo = resto.replaceFirst("^.* no es un ", "");
+            if (m[4] == null || !m[4].contains("tipo " + tipo + " de la variable " + var)) return "201 con texto [" + m[4] + "]";
+        } else if (nuevo.equals("202")) {
+            String token = resto.replaceFirst("^.*luego del token ", "");
+            if (m[4] == null || !m[4].endsWith("después de " + token)) return "202 con texto [" + m[4] + "]";
+        }
+        return null;
+    }
+
+    // Lexema como lo deja Parser.Lexema: "\n" -> EOL, "" -> nombre del tipo (no vacío)
+    private static String Lexema(String literal) {
+        if (literal.equals("\n")) return "EOL";
+        // Literal vacío: el lexema es el nombre del tipo, que la cadena no trae; no se compara
+        if (literal.isEmpty()) return null;
+        return literal;
+    }
+
+    // Mensajes de un origen en la huella: [linea, codigo, categoria, lexema, texto]
+    private static List<String[]> Mensajes(List<String> meta, String origen) {
+        List<String[]> r = new ArrayList<>();
+        String pref = "MENSAJE|" + origen + "|";
+        for (String l : meta) {
+            if (!l.startsWith(pref)) continue;
+            String[] p = l.substring(pref.length()).split("\\|", -1);
+            String[] f = new String[5];
+            for (int i = 0; i < 5; i++) f[i] = i < p.length ? Desescapar(p[i]) : null;
+            r.add(f);
+        }
+        return r;
+    }
+
+    private static String Valor(List<String> meta, String prefijo) {
+        for (String l : meta) if (l.startsWith(prefijo)) return l.substring(prefijo.length());
+        return null;
+    }
+
+    private static List<String> Valores(List<String> meta, String prefijo) {
+        List<String> r = new ArrayList<>();
+        for (String l : meta) if (l.startsWith(prefijo)) r.add(l.substring(prefijo.length()));
+        return r;
+    }
+
+    // Inverso de Escapar/EscaparCampo
+    private static String Desescapar(String s) {
+        if (s == null) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch == '\\' && i + 1 < s.length()) {
+                char nx = s.charAt(++i);
+                sb.append(nx == 'n' ? '\n' : nx == 'r' ? '\r' : nx == 'p' ? '|' : nx);
+            } else {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
+    }
+
+    // Un campo de la huella: además de Escapar, el separador '|' pasa a "\p"
+    private static String EscaparCampo(String s) {
+        return Escapar(s).replace("|", "\\p");
+    }
+
+    // Líneas del fuente como las lee TestProyecto (BufferedReader)
+    private static List<String> LineasFuente(byte[] b) {
+        List<String> lineas = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new java.io.StringReader(new String(b, StandardCharsets.ISO_8859_1)))) {
+            String s;
+            while ((s = br.readLine()) != null) lineas.add(s);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return lineas;
+    }
+
+    // 3.11 y R6 en un hijo (el parser y el lexer corren con límite de tiempo)
+    private static void ReglasEnHijo(Path carpeta, Path logs) throws Exception {
+        Path dir = carpeta.resolve("reglas");
+        BorrarArbol(dir);
+        Files.createDirectories(dir);
+        ResultadoHijo r = LanzarHijo(Arrays.asList("hijoreglas"), dir, logs, "reglas", false, MAX_HUELLA);
+        List<String> base = new ArrayList<>();
+        ProblemasDeEjecucion(r, base);
+        List<String> lineas = LineasConPrefijo(r.stdout, "REGLA|");
+        if (lineas.isEmpty()) base.add("el hijo no informó ninguna regla");
+        if (!base.isEmpty()) Registrar("reglas (hijo)", base, r);
+        for (String l : lineas) {
+            // REGLA|nombre|OK  o  REGLA|nombre|FALLA|detalle
+            String[] p = l.split("\\|", 3);
+            List<String> dif = new ArrayList<>();
+            if (!p[1].equals("OK")) dif.add(Desescapar(p.length > 2 ? p[2] : "sin detalle"));
+            Registrar(Desescapar(p[0]), dif, r);
+        }
+    }
+
+    // R7: los programas de críticos que colgaban o lanzaban excepción terminan bien en el hijo
+    private static void CasosR7(Path trabajo, Path logs) throws Exception {
+        BorrarArbol(trabajo);
+        List<Caso> casos = new ArrayList<>();
+        // e2 y e9 sin salto final, como en PruebasCriticos
+        casos.add(Nuevo("e2", "e2.mingol", "e2.mingol", "e2-errores.txt", "e2.a68", false,
+                "BEGIN", "INT x := 1;", "IF (x) THEN"));
+        casos.add(Nuevo("e8", "e8.mingol", "e8.mingol", "e8-errores.txt", "e8.a68", true,
+                "BEGIN", "INT x := 1;", "IF (x) THEN", "SKIP;", "END"));
+        casos.add(Nuevo("e9", "e9.mingol", "e9.mingol", "e9-errores.txt", "e9.a68", false,
+                "BEGIN", "INT x := 1;", "IF (x) THEN", "print ( \"a\" );", "ELSE"));
+        casos.add(Simple("c1", "BEGIN", "inicio:", "CHAR y := inicio;", "END"));
+        Map<String, byte[]> fuentes = new LinkedHashMap<>();
+        for (Caso c : casos) fuentes.put(c.id, c.bytes());
+        Map<String, ResultadoHijo> res = CorrerCasos(casos, fuentes, trabajo, logs.resolve("r7"));
+        for (Caso c : casos) {
+            ResultadoHijo r = res.get(c.id);
+            List<String> dif = new ArrayList<>();
+            // Termina en el hijo antes del límite y sin excepción no controlada
+            ProblemasDeEjecucion(r, dif);
+            if (r.termino && r.milis >= LIMITE_SEGUNDOS * 1000) dif.add("tardó " + r.milis + " ms");
+            if (Valor(LineasMeta(r.stdout), "TESTPROYECTO|") == null) dif.add("TestProyecto no devolvió valor");
+            Registrar("R7 " + c.id + " termina en < " + LIMITE_SEGUNDOS + " s sin excepción", dif, r);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Modo hijoreglas: 3.11 y los arreglos originales (R6), un resultado por línea
+    // ------------------------------------------------------------------
+
+    private static void HijoReglas() throws Exception {
+        PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
+
+        // 3.11: declaraciones con valor inicial sin identificadores no definidos
+        Reiniciar();
+        String fuenteA = "BEGIN\nINT a := 1;\nREAL r := 1.5;\nINT b := 7;\nEND\n";
+        Parser pa = new Parser(new Lexer(fuenteA));
+        Program progA = pa.ParseProgram();
+        Environment envA = new Environment();
+        Objeto resA = Evaluator.Evaluate(progA, envA);
+        List<String> d = new ArrayList<>();
+        if (!pa.GetErrors().isEmpty()) d.add("el parser registró " + pa.GetErrors());
+        for (String v : new String[]{"a", "r", "b"}) {
+            Object val = envA.get(v);
+            if (val == null || val instanceof Errado) d.add(v + " no quedó registrada (" + val + ")");
+        }
+        if (resA instanceof Errado) d.add("Evaluate devolvió " + ((Errado) resA).Inspect());
+        if (Evaluator.hasErrors) d.add("Evaluator.hasErrors=true");
+        int mA = CuantosMensajesEvaluador();
+        if (mA > 0) d.add("el evaluador registró " + mA + " mensajes");
+        Regla(out, "3.11 declaraciones sin identificadores no definidos se registran sin mensajes", d);
+
+        // 3.11: la redeclaración da 304 (sentencia por sentencia, sin el corte del programa)
+        Reiniciar();
+        Program progB = new Parser(new Lexer("BEGIN\nINT a := 1;\nINT a := 2;\nEND\n")).ParseProgram();
+        Environment envB = new Environment();
+        d = new ArrayList<>();
+        List<String> inspects = new ArrayList<>();
+        for (Statement st : progB.statements) {
+            Objeto r = Evaluator.Evaluate(st, envB);
+            if (r instanceof Errado) inspects.add(((Errado) r).Inspect());
+        }
+        if (inspects.size() != 1 || !inspects.get(0).contains("Error 304")) d.add("se esperaba un único 304; errores: " + inspects);
+        int mB = CuantosMensajesEvaluador();
+        if (mB >= 0 && mB != 1) d.add("el evaluador registró " + mB + " mensajes (se esperaba 1, el 304)");
+        Regla(out, "3.11 la redeclaración da 304", d);
+
+        // R6 (arreglo 1): Parser.line coincide con la línea del lexer (una línea por comando)
+        String[][] programas = {
+            {"", "BEGIN", "INT a := 1;", "", "   ", "x = 3;", "END"},
+            {"BEGIN", "LONG x;", "", "print ( (a) );", "END"},
+            {"BEGIN", "", "INT a := 1;", "INT b := 2.5;", "END"},
+        };
+        // Línea física del lexema que provoca los mensajes de cada programa
+        String[] lexemas = {"=", "LONG", "2.5"};
+        for (int k = 0; k < programas.length; k++) {
+            d = new ArrayList<>();
+            String fuente = String.join("\n", programas[k]) + "\n";
+            Parser p = new Parser(new Lexer(fuente));
+            p.ParseProgram();
+            // Línea del lexer: EOL vistos antes del token + 1
+            List<Integer> lineasLexer = new ArrayList<>();
+            Lexer lx = new Lexer(fuente);
+            int linea = 1;
+            for (int i = 0; i < 10000; i++) {
+                Token t = lx.NextToken();
+                if (t.getTokenType() == MingolToken.EOF) break;
+                if (t.getLiteral().equals(lexemas[k]) && !lineasLexer.contains(linea)) lineasLexer.add(linea);
+                // Tras el arreglo (Token.getLine), la línea del token coincide con la contada por EOL
+                Integer lt = LineaToken(t);
+                if (lt != null && lt != linea) d.add("token [" + Escapar(t.getLiteral()) + "] con getLine " + lt + " y no " + linea);
+                if (t.getTokenType() == MingolToken.EOL) linea++;
+            }
+            if (lineasLexer.size() != 1) d.add("el lexema " + lexemas[k] + " no está en una sola línea: " + lineasLexer);
+            if (p.GetErrors().isEmpty()) d.add("el parser no registró nada (el caso no prueba la línea)");
+            for (String e : p.GetErrors()) {
+                java.util.regex.Matcher ml = LINEA_CADENA.matcher(e);
+                if (!ml.find() || lineasLexer.isEmpty() || Integer.parseInt(ml.group(1)) != lineasLexer.get(0)) {
+                    d.add("[" + Escapar(e) + "] no está en la línea del lexer " + lineasLexer);
+                }
+            }
+            Regla(out, "R6 Parser.line = línea del lexer, programa " + (k + 1), d);
+        }
+
+        // R6 (arreglo 3): 12345678901 da un error controlado, sin excepción
+        d = new ArrayList<>();
+        try {
+            Parser p = new Parser(new Lexer("BEGIN\nINT a := 12345678901;\nEND\n"));
+            p.ParseProgram();
+            boolean hay = p.GetErrors().stream().anyMatch(e -> e.startsWith("\tLinea 2 ") && e.contains("12345678901")
+                    && e.contains("conversion invalida a entero"));
+            if (!hay) d.add("no está el error de conversión en la línea 2: " + p.GetErrors());
+            if (!p.hasErrors) d.add("hasErrors=false");
+        } catch (Throwable t) {
+            d.add("excepción " + t.getClass().getName());
+        }
+        Regla(out, "R6 12345678901 produce error controlado sin excepción", d);
+
+        // R6 (arreglo 2): un EOL por línea física (vacías, con espacios y con cadenas)
+        String[][] fuentes = {
+            {"BEGIN", "END"},
+            {"", "BEGIN", "   ", "INT a := 1;", "print ( \"a b\" );", "", "END", ""},
+            {"   ", "", ""},
+        };
+        for (int k = 0; k < fuentes.length; k++) {
+            d = new ArrayList<>();
+            String fuente = String.join("\n", fuentes[k]) + "\n";
+            Lexer lx = new Lexer(fuente);
+            int eol = 0;
+            boolean eof = false;
+            for (int i = 0; i < 10000; i++) {
+                Token t = lx.NextToken();
+                if (t.getTokenType() == MingolToken.EOF) {
+                    eof = true;
+                    break;
+                }
+                if (t.getTokenType() == MingolToken.EOL) eol++;
+            }
+            if (!eof) d.add("el lexer no llegó a EOF");
+            if (eol != fuentes[k].length) d.add(eol + " EOL para " + fuentes[k].length + " líneas");
+            Regla(out, "R6 un EOL por línea, fuente " + (k + 1) + " (" + fuentes[k].length + " líneas)", d);
+        }
+        out.flush();
+        System.exit(0);
+    }
+
+    private static void Regla(PrintStream out, String nombre, List<String> dif) {
+        out.println("REGLA|" + EscaparCampo(nombre) + "|" + (dif.isEmpty() ? "OK" : "FALLA|" + Escapar(String.join("; ", dif))));
+    }
+
+    // Evaluator.Reiniciar() si existe (tras el arreglo); si no, se pone hasErrors en false a mano
+    private static void Reiniciar() {
+        try {
+            Evaluator.class.getMethod("Reiniciar").invoke(null);
+        } catch (NoSuchMethodException e) {
+            Evaluator.hasErrors = false;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // Token.getLine() por reflexión; null si no existe (código sin arreglar)
+    private static Integer LineaToken(Token t) {
+        try {
+            return (Integer) Token.class.getMethod("getLine").invoke(t);
+        } catch (NoSuchMethodException e) {
+            return null;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // Tamaño de Evaluator.GetMensajes() por reflexión; -1 si no existe
+    private static int CuantosMensajesEvaluador() {
+        try {
+            return ((List<?>) Evaluator.class.getMethod("GetMensajes").invoke(null)).size();
+        } catch (NoSuchMethodException e) {
+            return -1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // Cambia el tabulador que sigue al número de 5 dígitos por un espacio (2.2); el resto queda igual
+    private static byte[] NormalizarSeparador(byte[] b) {
+        String[] partes = new String(b, StandardCharsets.ISO_8859_1).split("\n", -1);
+        for (int i = 0; i < partes.length; i++) {
+            String p = partes[i];
+            if (p.length() >= 6 && p.substring(0, 5).chars().allMatch(Character::isDigit) && p.charAt(5) == '\t') {
+                partes[i] = p.substring(0, 5) + " " + p.substring(6);
+            }
+        }
+        return String.join("\n", partes).getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    // ------------------------------------------------------------------
+    // Tarea 2: ejecución en paralelo y utilidades de captura
+    // ------------------------------------------------------------------
+
+    // Cada caso en su propia carpeta y su propio hijo (R8); HILOS hijos a la vez
+    private static Map<String, ResultadoHijo> CorrerCasos(List<Caso> casos, Map<String, byte[]> fuentes,
+                                                          Path trabajo, Path logs) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(HILOS);
+        Map<String, Future<ResultadoHijo>> futuros = new LinkedHashMap<>();
+        try {
+            for (Caso c : casos) {
+                Path dir = trabajo.resolve(c.id);
+                Path f = dir.resolve(c.archivo);
+                Files.createDirectories(f.getParent());
+                Files.write(f, fuentes.get(c.id));
+                futuros.put(c.id, pool.submit(() -> LanzarHijo(Arrays.asList("hijopres", c.archivo, c.argumento),
+                        dir, logs, c.id, false, MAX_HUELLA)));
+            }
+            Map<String, ResultadoHijo> res = new LinkedHashMap<>();
+            for (Map.Entry<String, Future<ResultadoHijo>> e : futuros.entrySet()) res.put(e.getKey(), e.getValue().get());
+            return res;
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    // No terminó, salió con código distinto de 0 o hubo una excepción en el compilador
+    private static void ProblemasDeEjecucion(ResultadoHijo r, List<String> dif) {
+        if (!r.termino) dif.add("no terminó en " + LIMITE_SEGUNDOS + " s (destroyForcibly)");
+        else if (r.codigo != 0) dif.add("código de salida del hijo " + r.codigo);
+        String exc = LineaConPrefijo(r.stdout, "EXCEPCION");
+        if (exc != null) dif.add(exc);
+        String err = PrimeraLineaCon(r.stderr, "Exception");
+        if (err == null) err = PrimeraLineaCon(r.stderr, "Error");
+        if (err != null) dif.add("stderr: " + err.trim());
+    }
+
+    // Líneas no vacías de la huella del hijo
+    private static List<String> LineasMeta(String stdout) {
+        List<String> meta = new ArrayList<>();
+        for (String l : stdout.split("\\R")) if (!l.isEmpty()) meta.add(l);
+        return meta;
+    }
+
+    // Archivos de una carpeta, recursivo, como rutas relativas ordenadas (t11 deja sub.dir\t11.a68)
+    private static List<String> ArchivosRec(Path dir) throws IOException {
+        if (!Files.exists(dir)) return new ArrayList<>();
+        try (Stream<Path> s = Files.walk(dir)) {
+            return s.filter(Files::isRegularFile).map(p -> dir.relativize(p).toString()).sorted().collect(Collectors.toList());
+        }
+    }
+
+    // Carpeta actual, con la misma protección que el modo ejemplos (R5)
+    private static Path CarpetaSegura() {
+        Path carpeta = Paths.get("").toAbsolutePath();
+        System.out.println("Carpeta de trabajo base: " + carpeta);
+        if (Files.exists(carpeta.resolve("build.xml")) || Files.exists(carpeta.resolve("proyecto.mingol"))) {
+            System.err.println("Se evita ejecutar en el repositorio: usar $env:TEMP\\mingol-errores");
+            System.exit(2);
+        }
+        return carpeta;
+    }
+
+    // Solo las FALLA y el total (la salida completa queda en el log de la corrida)
+    private static void ImprimirResumen(String modo) {
+        System.out.println();
+        System.out.println("===== RESUMEN " + modo + " =====");
+        for (String r : resumen) if (r.startsWith("FALLA")) System.out.println(r);
+        System.out.println("Total: " + resumen.size() + ", FALLA: " + fallas + ", OK: " + (resumen.size() - fallas));
+        System.exit(fallas == 0 ? 0 : 1);
+    }
+
+    // ------------------------------------------------------------------
+    // Modo hijopres: huella de un caso (TestProyecto por reflexión, nunca main)
+    // ------------------------------------------------------------------
+
+    private static void HijoPres(String argumento) throws Exception {
+        // Salida en UTF-8 para que el padre la lea sin depender de la página de códigos
+        PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
+        boolean huboExcepcion = false;
+        String ruta = NormalizarComoMain(argumento);
+        out.println("RUTA|" + Escapar(ruta));
+        String fuente = LeerFuente(ruta);
+
+        // Parser por separado: GetErrors() en orden (y GetMensajes() si existe, para la tarea 3)
+        Parser parser = new Parser(new Lexer(fuente));
+        parser.ParseProgram();
+        for (String e : parser.GetErrors()) out.println("GETERRORS|" + Escapar(e));
+        out.println("GETERRORS_TOTAL|" + parser.GetErrors().size());
+        ImprimirMensajes(out, "parser", parser, parser.getClass());
+
+        // TestProyecto: escribe el -errores.txt y el .a68 en la carpeta del caso
+        Method m = Class.forName("Mingol.Mingol").getDeclaredMethod("TestProyecto", String.class);
+        m.setAccessible(true);
+        try {
+            out.println("TESTPROYECTO|" + m.invoke(null, ruta));
+        } catch (InvocationTargetException e) {
+            huboExcepcion = true;
+            out.println("EXCEPCION|" + e.getCause().getClass().getName() + "|" + Escapar(String.valueOf(e.getCause().getMessage())));
+            e.getCause().printStackTrace();
+        }
+        // hasErrors justo después de TestProyecto (antes de volver a evaluar)
+        out.println("HASERRORS|parser=" + parser.hasErrors + "|evaluator=" + Evaluator.hasErrors);
+        ImprimirMensajes(out, "evaluador", null, Evaluator.class);
+
+        // Inspect() del evaluador solo cuando el parser no tuvo mensajes
+        if (parser.GetErrors().isEmpty()) {
+            try {
+                Environment env = new Environment();
+                Objeto res = Evaluator.Evaluate(new Parser(new Lexer(fuente)).ParseProgram(), env);
+                out.println("INSPECT|" + (res == null ? "null" : res.getClass().getSimpleName() + "|" + Escapar(res.Inspect())));
+                // Tarea 3 (1.16): alguna declaración guardó un Errado como valor inicial (antes y después del arreglo)
+                boolean letErrado = false;
+                for (Object v : env.values()) if (v instanceof Errado) letErrado = true;
+                out.println("LET_ERRADO|" + letErrado);
+            } catch (Throwable t) {
+                huboExcepcion = true;
+                out.println("EXCEPCION_EVAL|" + t.getClass().getName());
+            }
+        } else {
+            out.println("INSPECT_NO_CORRE");
+        }
+        out.flush();
+        System.exit(huboExcepcion ? 3 : 0);
+    }
+
+    // ------------------------------------------------------------------
+    // Modo hijo: un caso aislado; el padre controla tiempo y memoria
+    // ------------------------------------------------------------------
+
+    private static void Hijo(String id, String argumento, boolean evaluar) throws Exception {
+        // Salida en UTF-8 para que el padre la lea sin depender de la página de códigos
+        PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
+        if (id.equals("causa7")) {
+            HijoCausa7(out);
+            return;
+        }
+        String ruta = NormalizarComoMain(argumento);
+        out.println("RUTA|" + ruta);
+        String fuente = LeerFuente(ruta);
+
+        if (evaluar) {
+            // Borde de la causa 4: Evaluate directo sobre el AST parcial (el padre lanza este hijo con -ea)
+            Program program = new Parser(new Lexer(fuente)).ParseProgram();
+            try {
+                Objeto res = Evaluator.Evaluate(program, new Environment());
+                out.println("EVAL|OK|" + (res == null ? "null" : Escapar(res.Inspect())));
+            } catch (Throwable t) {
+                out.println("EVAL|EXC|" + t.getClass().getName());
+            }
+            out.flush();
+            System.exit(0);
+        }
+
+        boolean huboExcepcion = false;
+        // Parser por separado: GetErrors() en orden y GetMensajes() si existe (por reflexión)
+        Parser parser = new Parser(new Lexer(fuente));
+        parser.ParseProgram();
+        for (String e : parser.GetErrors()) out.println("GETERRORS|" + Escapar(e));
+        ImprimirMensajes(out, "parser", parser, parser.getClass());
+
+        // TestProyecto por reflexión, igual que RunTestProyecto (sin a68g)
+        Method m = Class.forName("Mingol.Mingol").getDeclaredMethod("TestProyecto", String.class);
+        m.setAccessible(true);
+        try {
+            out.println("TestProyecto=" + m.invoke(null, ruta));
+        } catch (InvocationTargetException e) {
+            huboExcepcion = true;
+            out.println("EXCEPCION|" + e.getCause().getClass().getName() + "|" + Escapar(String.valueOf(e.getCause().getMessage())));
+            e.getCause().printStackTrace();
+        }
+        // hasErrors del parser (mismo fuente, determinista) y del evaluador estático tras TestProyecto
+        out.println("HASERRORS|parser=" + parser.hasErrors + "|evaluator=" + Evaluator.hasErrors);
+        ImprimirMensajes(out, "evaluador", null, Evaluator.class);
+
+        // Inspect() del evaluador con parser sin mensajes; va después para no alterar hasErrors antes de tiempo
+        if (parser.GetErrors().isEmpty()) {
+            Environment env = new Environment();
+            try {
+                Program otro = new Parser(new Lexer(fuente)).ParseProgram();
+                Objeto res = Evaluator.Evaluate(otro, env);
+                out.println("INSPECT|" + (res == null ? "null" : res.getClass().getSimpleName() + "|" + Escapar(res.Inspect())));
+            } catch (Throwable t) {
+                huboExcepcion = true;
+                out.println("EXCEPCION_EVAL|" + t.getClass().getName());
+            }
+            // Causa 8: qué quedó guardado en env para y (c1, c6, t13)
+            Object y = env.get("y");
+            if (y instanceof Errado) out.println("ENV_Y|Errado|" + Escapar(((Errado) y).Inspect()));
+            else out.println("ENV_Y|" + (y == null ? "null" : y.getClass().getSimpleName()) + "|");
+        } else {
+            out.println("INSPECT_NO_CORRE");
+        }
+        out.flush();
+        System.exit(huboExcepcion ? 3 : 0);
+    }
+
+    // Causa 7: Evaluator.hasErrors no se reinicia entre programas de la misma JVM
+    private static void HijoCausa7(PrintStream out) throws Exception {
+        Evaluator.Evaluate(new Parser(new Lexer(LeerFuente("c6.mingol"))).ParseProgram(), new Environment());
+        boolean trasC6 = Evaluator.hasErrors;
+        Evaluator.Evaluate(new Parser(new Lexer(LeerFuente("t4.mingol"))).ParseProgram(), new Environment());
+        boolean trasT4 = Evaluator.hasErrors;
+        out.println("CAUSA7|despues_c6=" + trasC6 + "|despues_t4=" + trasT4 + "|reiniciar=" + Existe("Evaluador.Evaluator", "Reiniciar"));
+        out.flush();
+        System.exit(0);
+    }
+
+    // MENSAJE|origen|... por reflexión: no existe en el código sin arreglar
+    private static void ImprimirMensajes(PrintStream out, String origen, Object instancia, Class<?> clase) {
+        try {
+            Method gm = clase.getMethod("GetMensajes");
+            Object lista = gm.invoke(instancia);
+            // Tarea 3: MENSAJE|origen|linea|codigo|categoria|lexema|texto|formateado, cada campo con EscaparCampo
+            for (Object msj : (List<?>) lista) {
+                StringBuilder sb = new StringBuilder("MENSAJE|" + origen);
+                for (String g : new String[]{"getLinea", "getCodigo", "getCategoria", "getLexema", "getTexto", "Formatear"}) {
+                    try {
+                        sb.append('|').append(EscaparCampo(String.valueOf(msj.getClass().getMethod(g).invoke(msj))));
+                    } catch (NoSuchMethodException e) {
+                        sb.append("|?");
+                    }
+                }
+                out.println(sb.toString());
+            }
+        } catch (NoSuchMethodException e) {
+            out.println("MENSAJES_NO_EXISTE|" + origen);
+        } catch (Exception e) {
+            out.println("MENSAJES_FALLA|" + origen + "|" + e.getClass().getName());
+        }
+    }
+
+    // Copia de la normalización de extensión de Mingol.main (no se llama a main)
+    private static String NormalizarComoMain(String path) {
+        if (path.split("\\.").length == 1) path += ".mingol";
+        return path;
+    }
+
+    // Lee el fuente igual que TestProyecto: cada línea seguida de "\n"
+    private static String LeerFuente(String archivo) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(archivo))) {
+            String linea;
+            while ((linea = reader.readLine()) != null) sb.append(linea).append("\n");
+        }
+        return sb.toString();
+    }
+
+    // ------------------------------------------------------------------
+    // Tarea 4.8: modo unitarias (en proceso)
+    // ------------------------------------------------------------------
+
+    private static void Unitarias() throws Exception {
+        Path carpeta = CarpetaSegura();
+        Path u = carpeta.resolve("unitarias");
+        BorrarArbol(u);
+        Files.createDirectories(u);
+        UnitariasMensaje();
+        UnitariasArchivoErrores(u);
+        UnitariasRutas(u);
+        UnitariasLexer();
+        UnitariasParserE8();
+        UnitariasEvaluator();
+        ImprimirResumen("unitarias");
+    }
+
+    // Compara un valor y registra OK/FALLA
+    private static void Igual(String nombre, Object esperado, Object obtenido) {
+        List<String> d = new ArrayList<>();
+        if (!Objects.equals(esperado, obtenido)) {
+            d.add("esperado [" + Escapar(String.valueOf(esperado)) + "], obtenido [" + Escapar(String.valueOf(obtenido)) + "]");
+        }
+        Registrar(nombre, d, null);
+    }
+
+    // Mensaje.Formatear(), categorías y rechazo de códigos fuera de 100–399
+    private static void UnitariasMensaje() {
+        Igual("Mensaje 1xx", "ERROR 101: Carácter ilegal [@].", Mensaje.Error(3, 101, "Carácter ilegal", "@").Formatear());
+        Igual("Mensaje 1xx (102)", "ERROR 102: Constante numérica no convertible a entero [12345678901].",
+                Mensaje.Error(2, 102, "Constante numérica no convertible a entero", "12345678901").Formatear());
+        Igual("Mensaje 2xx", "ERROR 202: No puede haber nada en la línea después de BEGIN [x].",
+                Mensaje.Error(1, 202, "No puede haber nada en la línea después de BEGIN", "x").Formatear());
+        Igual("Mensaje 3xx", "ERROR 303: Identificador no encontrado [zz].",
+                Mensaje.Error(6, 303, "Identificador no encontrado", "zz").Formatear());
+        Igual("Mensaje advertencia", "Advertencia: instrucción no es soportada por esta versión [LONG].",
+                Mensaje.Advertencia(3, "LONG").Formatear());
+        Igual("Mensaje lexema EOL", "ERROR 204: Se esperaba un token de tipo SEMICOLON pero se obtuvo EOL [EOL].",
+                Mensaje.Error(2, 204, "Se esperaba un token de tipo SEMICOLON pero se obtuvo EOL", "EOL").Formatear());
+        Igual("Mensaje lexema EOF", "ERROR 204: Se esperaba un token de tipo FI pero se obtuvo EOF [EOF].",
+                Mensaje.Error(6, 204, "Se esperaba un token de tipo FI pero se obtuvo EOF", "EOF").Formatear());
+
+        // Categoría derivada del código, EsError y línea tal como se detectó (incluida la n+1)
+        Igual("Mensaje categoría 1xx", Mensaje.Categoria.LEXICO, Mensaje.Error(1, 100, "t", "l").getCategoria());
+        Igual("Mensaje categoría 2xx", Mensaje.Categoria.SINTACTICO, Mensaje.Error(1, 299, "t", "l").getCategoria());
+        Igual("Mensaje categoría 3xx", Mensaje.Categoria.SEMANTICO, Mensaje.Error(1, 399, "t", "l").getCategoria());
+        Mensaje adv = Mensaje.Advertencia(4, "RETURN");
+        Igual("Mensaje advertencia: categoría, sin código, no es error",
+                "ADVERTENCIA|null|false", adv.getCategoria() + "|" + adv.getCodigo() + "|" + adv.EsError());
+        Igual("Mensaje error: EsError y línea n+1 conservada", "true|6",
+                Mensaje.Error(6, 204, "t", "EOF").EsError() + "|" + Mensaje.Error(6, 204, "t", "EOF").getLinea());
+
+        // Fuera de 100–399: IllegalArgumentException
+        for (int cod : new int[]{0, 5, 99, 400, 999, -101}) {
+            List<String> d = new ArrayList<>();
+            try {
+                Mensaje.Error(1, cod, "t", "l");
+                d.add("no lanzó IllegalArgumentException");
+            } catch (IllegalArgumentException e) {
+                // Esperado
+            } catch (Throwable t) {
+                d.add("lanzó " + t.getClass().getName());
+            }
+            Registrar("Mensaje rechaza el código " + cod, d, null);
+        }
+    }
+
+    // Escribe con ArchivoErrores y lee el resultado con ISO-8859-1 (se escribe en Cp1252)
+    private static String EscribirYLeer(Path dir, String nombre, List<String> lineas, List<Mensaje> mensajes) throws IOException {
+        Path p = dir.resolve(nombre);
+        ArchivoErrores.Escribir(p.toString(), lineas, mensajes);
+        return new String(Files.readAllBytes(p), StandardCharsets.ISO_8859_1);
+    }
+
+    private static void UnitariasArchivoErrores(Path u) throws Exception {
+        Mensaje m307 = Mensaje.Error(Mensaje.SIN_LINEA, 307, "No se encontró una sentencia BEGIN", "BEGIN");
+        Mensaje m308 = Mensaje.Error(Mensaje.SIN_LINEA, 308, "No se encontró una sentencia END", "END");
+        String l307 = S8 + "ERROR 307: No se encontró una sentencia BEGIN [BEGIN].\n";
+        String l308 = S8 + "ERROR 308: No se encontró una sentencia END [END].\n";
+
+        // Fuente vacío con 307 y 308: solo el bloque final, cada mensaje con su salto
+        Igual("ArchivoErrores fuente vacío con 307 y 308", l307 + l308,
+                EscribirYLeer(u, "vacio-errores.txt", new ArrayList<>(), Arrays.asList(m307, m308)));
+
+        // Categorías mezcladas en una línea; orden estable dentro de la categoría (204 antes que 201)
+        List<Mensaje> mezcla = new ArrayList<>(Arrays.asList(
+                Mensaje.Advertencia(2, "LONG"),
+                Mensaje.Error(2, 303, "Identificador no encontrado", "b"),
+                Mensaje.Error(2, 204, "Se esperaba un token de tipo IDENT pero se obtuvo EQ", "="),
+                Mensaje.Error(2, 101, "Carácter ilegal", "@"),
+                Mensaje.Error(2, 201, "El valor inicial no corresponde al tipo INT de la variable a", "1.5"),
+                Mensaje.Error(1, 305, "No puede haber más de una sentencia BEGIN por archivo", "BEGIN")));
+        List<Mensaje> copiaMezcla = new ArrayList<>(mezcla);
+        String esperadoMezcla = "00001 BEGIN\n"
+                + S8 + "ERROR 305: No puede haber más de una sentencia BEGIN por archivo [BEGIN].\n"
+                + "00002 x = 3;\n"
+                + S8 + "ERROR 101: Carácter ilegal [@].\n"
+                + S8 + "ERROR 204: Se esperaba un token de tipo IDENT pero se obtuvo EQ [=].\n"
+                + S8 + "ERROR 201: El valor inicial no corresponde al tipo INT de la variable a [1.5].\n"
+                + S8 + "ERROR 303: Identificador no encontrado [b].\n"
+                + S8 + "Advertencia: instrucción no es soportada por esta versión [LONG].\n"
+                + "00003 END\n";
+        Igual("ArchivoErrores categorías mezcladas y orden estable", esperadoMezcla,
+                EscribirYLeer(u, "mezcla-errores.txt", Arrays.asList("BEGIN", "x = 3;", "END"), mezcla));
+        // Escribe ordenando una copia: la lista recibida no cambia
+        Igual("ArchivoErrores no modifica la lista de mensajes", true, copiaMezcla.equals(mezcla));
+
+        // Línea n+1 (y más allá) bajo la línea n, junto con los de n y ordenados por categoría; 308 al final
+        List<Mensaje> fuera = Arrays.asList(
+                Mensaje.Error(4, 204, "Se esperaba un token de tipo FI pero se obtuvo EOF", "EOF"),
+                m308,
+                Mensaje.Error(3, 306, "No puede haber más de una sentencia END por archivo", "END"),
+                Mensaje.Error(9, 203, "Token que no puede iniciar una expresión", "EOF"));
+        String esperadoFuera = "00001 BEGIN\n00002 SKIP;\n00003 END\n"
+                + S8 + "ERROR 204: Se esperaba un token de tipo FI pero se obtuvo EOF [EOF].\n"
+                + S8 + "ERROR 203: Token que no puede iniciar una expresión [EOF].\n"
+                + S8 + "ERROR 306: No puede haber más de una sentencia END por archivo [END].\n"
+                + l308;
+        Igual("ArchivoErrores línea fuera de rango bajo la última línea (D1)", esperadoFuera,
+                EscribirYLeer(u, "fuera-errores.txt", Arrays.asList("BEGIN", "SKIP;", "END"), fuera));
+
+        // Fuente vacío: el fuera de rango va al bloque final, antes de 307 (sintáctico antes que semántico)
+        Igual("ArchivoErrores fuera de rango con fuente vacío va al bloque final",
+                S8 + "ERROR 204: Se esperaba un token de tipo FI pero se obtuvo EOF [EOF].\n" + l307,
+                EscribirYLeer(u, "vacio2-errores.txt", new ArrayList<>(),
+                        Arrays.asList(m307, Mensaje.Error(1, 204, "Se esperaba un token de tipo FI pero se obtuvo EOF", "EOF"))));
+
+        // Sin mensajes: copia literal (líneas vacías y con espacios) con un espacio y salto final
+        Igual("ArchivoErrores sin mensajes: copia literal con salto final", "00001 BEGIN\n00002 \n00003    \n00004 END\n",
+                EscribirYLeer(u, "copia-errores.txt", Arrays.asList("BEGIN", "", "   ", "END"), new ArrayList<>()));
+    }
+
+    // NombrePrograma, RutaA68 y MismoArchivo por reflexión (son privados)
+    private static void UnitariasRutas(Path u) throws Exception {
+        Class<?>[] s = {String.class};
+        String[][] nombres = {
+            {"t1.mingol", "t1", "t1.a68"},
+            {"T10.MINGOL", "T10", "T10.a68"},
+            {"sub.dir\\t11.mingol", "t11", "sub.dir\\t11.a68"},
+            {"C:\\x.y\\z.Mingol", "z", "C:\\x.y\\z.a68"},
+            {"t12.mingol", "t12", "t12.a68"},
+            {"x.a68", "x", "x.a68"},
+            {"X.A68", "X", "X.a68"},
+        };
+        for (String[] c : nombres) {
+            Igual("NombrePrograma(" + c[0] + ")", c[1], Llamar("NombrePrograma", s, c[0]));
+            Igual("RutaA68(" + c[0] + ")", c[2], Llamar("RutaA68", s, c[0]));
+        }
+
+        // MismoArchivo con archivos reales en la carpeta de unitarias
+        Class<?>[] pp = {Path.class, Path.class};
+        Path x = u.resolve("x.a68");
+        Files.write(x, "BEGIN\nEND\n".getBytes(StandardCharsets.US_ASCII));
+        Path rutaX = Paths.get((String) Llamar("RutaA68", s, x.toString()));
+        Igual("MismoArchivo(x.a68, RutaA68(x.a68)) existente", true, Llamar("MismoArchivo", pp, x, rutaX));
+        // Windows no distingue mayúsculas: X.A68 es el mismo archivo
+        Igual("MismoArchivo(X.A68, x.a68)", true, Llamar("MismoArchivo", pp, u.resolve("X.A68"), x));
+        Path t1 = u.resolve("t1.mingol");
+        Files.write(t1, "BEGIN\nEND\n".getBytes(StandardCharsets.US_ASCII));
+        Path t1a68 = Paths.get((String) Llamar("RutaA68", s, t1.toString()));
+        Igual("MismoArchivo(t1.mingol, t1.a68) sin t1.a68", false, Llamar("MismoArchivo", pp, t1, t1a68));
+        Files.write(t1a68, "BEGIN\nEND\n".getBytes(StandardCharsets.US_ASCII));
+        Igual("MismoArchivo(t1.mingol, t1.a68) con t1.a68 existente", false, Llamar("MismoArchivo", pp, t1, t1a68));
+    }
+
+    // Líneas de los tokens: líneas vacías y con espacios, cadena y comentario de varias líneas, EOL y EOF
+    private static void UnitariasLexer() {
+        String fuente = String.join("\n", "", "BEGIN", "   ", "print ( \"a", "b\" );", "# comentario", "de dos lineas #", "END") + "\n";
+        Lexer lx = new Lexer(fuente);
+        List<Token> toks = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            Token t = lx.NextToken();
+            toks.add(t);
+            if (t.getTokenType() == MingolToken.EOF) break;
+        }
+        List<Integer> eol = new ArrayList<>();
+        Map<String, Integer> primera = new LinkedHashMap<>();
+        for (Token t : toks) {
+            if (t.getTokenType() == MingolToken.EOL) eol.add(t.getLine());
+            else primera.putIfAbsent(t.getTokenType() + ":" + t.getLiteral(), t.getLine());
+        }
+        // El salto de la línea 4 está dentro de la cadena: no hay EOL de la 4
+        Igual("Lexer EOL con la línea que termina", Arrays.asList(1, 2, 3, 5, 6, 7, 8), eol);
+        Igual("Lexer BEGIN tras una línea vacía", 2, primera.get("BEGIN:BEGIN"));
+        Igual("Lexer cadena de dos líneas empieza en la 4", 4, primera.get("STRING:a\nb"));
+        Igual("Lexer ')' después de la cadena, en la 5", 5, primera.get("RPAREN:)"));
+        Igual("Lexer apertura del comentario en la 6", 6, primera.get("COMMENT:#"));
+        Integer de = null;
+        for (Token t : toks) if (t.getLiteral().equals("de")) { de = t.getLine(); break; }
+        Igual("Lexer texto del comentario en la 7", 7, de);
+        Igual("Lexer END en la 8", 8, primera.get("END:END"));
+        Token ultimo = toks.get(toks.size() - 1);
+        Igual("Lexer EOF con n+1", "EOF|9", ultimo.getTokenType() + "|" + ultimo.getLine());
+    }
+
+    // e8: el 204 de ExpectedCurrentTokenError con lexema EOF y línea n+1 = 6
+    private static void UnitariasParserE8() {
+        Parser p = new Parser(new Lexer("BEGIN\nINT x := 1;\nIF (x) THEN\nSKIP;\nEND\n"));
+        p.ParseProgram();
+        List<String> d = new ArrayList<>();
+        List<Mensaje> eof = new ArrayList<>();
+        for (Mensaje m : p.GetMensajes()) {
+            if (Integer.valueOf(204).equals(m.getCodigo()) && "EOF".equals(m.getLexema())) eof.add(m);
+        }
+        if (eof.size() != 1) {
+            d.add(eof.size() + " mensajes 204 [EOF]; GetMensajes(): " + Formateados(p.GetMensajes()));
+        } else {
+            Mensaje m = eof.get(0);
+            if (m.getLinea() != 6) d.add("línea " + m.getLinea() + " (se esperaba 6, n+1)");
+            if (m.getCategoria() != Mensaje.Categoria.SINTACTICO) d.add("categoría " + m.getCategoria());
+            if (!"Se esperaba un token de tipo FI pero se obtuvo EOF".equals(m.getTexto())) d.add("texto [" + m.getTexto() + "]");
+        }
+        Registrar("Parser e8: GetMensajes() con el 204 [EOF] en la línea n+1", d, null);
+    }
+
+    private static List<String> Formateados(List<Mensaje> l) {
+        List<String> r = new ArrayList<>();
+        for (Mensaje m : l) r.add(m.getLinea() + ":" + m.Formatear());
+        return r;
+    }
+
+    // Token con línea (los nodos la exponen con getLine)
+    private static Token Tk(MingolToken tipo, String literal, int linea) {
+        Token t = new Token(tipo, literal);
+        t.setLine(linea);
+        return t;
+    }
+
+    private static Identifier Id(String nombre, int linea) {
+        return new Identifier(Tk(MingolToken.IDENT, nombre, linea), nombre);
+    }
+
+    // Mensajes del evaluador como "linea|codigo|lexema"
+    private static List<String> MsjEval() {
+        List<String> r = new ArrayList<>();
+        for (Mensaje m : Evaluator.GetMensajes()) r.add(m.getLinea() + "|" + m.getCodigo() + "|" + m.getLexema());
+        return r;
+    }
+
+    private static String Res(Objeto o) {
+        return o == null ? "null" : o.getClass().getSimpleName() + ":" + o.Inspect();
+    }
+
+    private static void UnitariasEvaluator() {
+        // Evaluate(null): null, sin mensajes
+        Evaluator.Reiniciar();
+        Igual("Evaluator Evaluate(null)", "null|[]", Res(Evaluator.Evaluate(null, new Environment())) + "|" + MsjEval());
+
+        // ExpressionStatement con expresión null
+        Evaluator.Reiniciar();
+        Objeto r = Evaluator.Evaluate(new ExpressionStatement(Tk(MingolToken.IDENT, "x", 2), null), new Environment());
+        Igual("Evaluator ExpressionStatement con expresión null", "null|[]|false", Res(r) + "|" + MsjEval() + "|" + Evaluator.hasErrors);
+
+        // Infix con operando null: null sin error
+        Evaluator.Reiniciar();
+        r = Evaluator.Evaluate(new Infix(Tk(MingolToken.ADDITION, "+", 3),
+                new Integral(Tk(MingolToken.INTEGER, "1", 3), 1), "+", null), new Environment());
+        Igual("Evaluator Infix con operando null", "null|[]|false", Res(r) + "|" + MsjEval() + "|" + Evaluator.hasErrors);
+
+        // Infix con operando Errado: se propaga el 303, sin 301 en cascada
+        Evaluator.Reiniciar();
+        r = Evaluator.Evaluate(new Infix(Tk(MingolToken.ADDITION, "+", 4), Id("zz", 4), "+",
+                new Integral(Tk(MingolToken.INTEGER, "1", 4), 1)), new Environment());
+        Igual("Evaluator Infix con operando Errado (sin 301)", "Errado|true|[4|303|zz]",
+                (r == null ? "null" : r.getClass().getSimpleName()) + "|" + (r != null && r.Inspect().contains("Error 303")) + "|" + MsjEval());
+
+        // Infix con los dos operandos Errado: los dos 303, ningún 301
+        Evaluator.Reiniciar();
+        r = Evaluator.Evaluate(new Infix(Tk(MingolToken.ADDITION, "+", 4), Id("zz", 4), "+", Id("ww", 4)), new Environment());
+        Igual("Evaluator Infix con dos operandos Errado", "[4|303|zz, 4|303|ww]", String.valueOf(MsjEval()));
+
+        // Prefix con operando null y con operando Errado
+        Evaluator.Reiniciar();
+        r = Evaluator.Evaluate(new Prefix(Tk(MingolToken.SUBSTRACTION, "-", 5), "-", null), new Environment());
+        Igual("Evaluator Prefix con operando null", "null|[]", Res(r) + "|" + MsjEval());
+        Evaluator.Reiniciar();
+        r = Evaluator.Evaluate(new Prefix(Tk(MingolToken.SUBSTRACTION, "-", 5), "-", Id("zz", 5)), new Environment());
+        Igual("Evaluator Prefix con operando Errado (sin 302)", "Errado|[5|303|zz]",
+                (r == null ? "null" : r.getClass().getSimpleName()) + "|" + MsjEval());
+
+        // LetStatement con valor null: guarda NULL, sin mensajes
+        Evaluator.Reiniciar();
+        Environment env = new Environment();
+        r = Evaluator.Evaluate(new LetStatement(Tk(MingolToken.TYPEINT, "INT", 6), Id("a", 6), null), env);
+        Igual("Evaluator LetStatement con valor null guarda NULL", "null|true|[]",
+                Res(r) + "|" + (env.get("a") == Evaluator.NULL) + "|" + MsjEval());
+
+        // LetStatement con valor Errado: lo devuelve, la variable queda declarada, un solo Mensaje
+        Evaluator.Reiniciar();
+        env = new Environment();
+        r = Evaluator.Evaluate(new LetStatement(Tk(MingolToken.TYPECHAR, "CHAR", 7), Id("y", 7), Id("zz", 7)), env);
+        Igual("Evaluator LetStatement con valor Errado", "Errado|true|[7|303|zz]",
+                (r == null ? "null" : r.getClass().getSimpleName()) + "|" + (env.get("y") instanceof Errado) + "|" + MsjEval());
+        // Usar y después no registra otro mensaje (el Errado guardado no se vuelve a registrar)
+        Evaluator.Evaluate(Id("y", 8), env);
+        Igual("Evaluator uso posterior de y sin 303 nuevo", "[7|303|zz]", String.valueOf(MsjEval()));
+        // Redeclaración: 304 con la línea del nombre
+        Evaluator.Evaluate(new LetStatement(Tk(MingolToken.TYPEINT, "INT", 9), Id("y", 9),
+                new Integral(Tk(MingolToken.INTEGER, "1", 9), 1)), env);
+        Igual("Evaluator redeclaración de y da 304", "[7|303|zz, 9|304|y]", String.valueOf(MsjEval()));
+
+        // Reiniciar(): vacía los mensajes y pone hasErrors en false
+        boolean antes = Evaluator.hasErrors && !Evaluator.GetMensajes().isEmpty();
+        Evaluator.Reiniciar();
+        Igual("Evaluator Reiniciar()", "true|[]|false", antes + "|" + MsjEval() + "|" + Evaluator.hasErrors);
+
+        // EvaluateIdentifier: 303 con la línea del identificador (también una etiqueta guardada como String)
+        Evaluator.Reiniciar();
+        env = new Environment();
+        env.put("inicio", "");
+        Evaluator.Evaluate(Id("qq", 11), env);
+        Evaluator.Evaluate(Id("inicio", 12), env);
+        Igual("Evaluator EvaluateIdentifier con la línea del identificador", "[11|303|qq, 12|303|inicio]", String.valueOf(MsjEval()));
+        List<String> d = new ArrayList<>();
+        if (!Evaluator.GetMensajes().isEmpty()) {
+            Mensaje m = Evaluator.GetMensajes().get(0);
+            if (!"Identificador no encontrado".equals(m.getTexto())) d.add("texto [" + m.getTexto() + "]");
+            if (m.getCategoria() != Mensaje.Categoria.SEMANTICO) d.add("categoría " + m.getCategoria());
+        } else {
+            d.add("sin mensajes");
+        }
+        Registrar("Evaluator EvaluateIdentifier: texto y categoría del 303", d, null);
+        Evaluator.Reiniciar();
+    }
+
+    // ------------------------------------------------------------------
+    // Tarea 4.8: modo propiedades (generador, semillas 1..200, en hijos)
+    // ------------------------------------------------------------------
+
+    private static final List<String> CATEGORIAS = Arrays.asList("LEXICO", "SINTACTICO", "SEMANTICO", "ADVERTENCIA");
+
+    private static void Propiedades() throws Exception {
+        Path carpeta = CarpetaSegura();
+        Path trabajo = carpeta.resolve("propiedades");
+        BorrarArbol(trabajo);
+        Path logs = carpeta.resolve("logs-propiedades");
+        BorrarArbol(logs);
+        System.out.println("Carpeta de trabajo: " + trabajo);
+
+        List<Caso> casos = new ArrayList<>();
+        Map<String, byte[]> fuentes = new LinkedHashMap<>();
+        for (int s = 1; s <= 200; s++) {
+            Caso c = Generar(s);
+            casos.add(c);
+            fuentes.put(c.id, c.bytes());
+        }
+        Map<String, ResultadoHijo> res = CorrerCasos(casos, fuentes, trabajo, logs);
+
+        int nIndep = 0, nValor = 0, nValidos = 0, nConMensajes = 0;
+        for (Caso c : casos) {
+            ResultadoHijo r = res.get(c.id);
+            List<String> meta = LineasMeta(r.stdout);
+            List<String> lineas = LineasFuente(fuentes.get(c.id));
+            Path errores = trabajo.resolve(c.id).resolve(c.nombreErrores);
+            List<String> real = Files.exists(errores) ? Files.readAllLines(errores, StandardCharsets.ISO_8859_1) : null;
+
+            // Property 1: formato, ubicación, orden y validez
+            List<String> dif = new ArrayList<>();
+            ProblemasDeEjecucion(r, dif);
+            if (real == null) {
+                dif.add("no existe " + c.nombreErrores);
+            } else {
+                Caso v = new Caso();
+                v.lineas = lineas.toArray(new String[0]);
+                ValidarFormato(v, real, dif);
+                // Oráculo: cada Mensaje (parser y evaluador) bajo su línea según la regla del diseño
+                List<String[]> msj = new ArrayList<>(Mensajes6(meta, "parser"));
+                msj.addAll(Mensajes6(meta, "evaluador"));
+                if (!msj.isEmpty()) nConMensajes++;
+                List<String> esperado = ArchivoDesdeMensajes(lineas, msj);
+                if (!real.equals(esperado)) dif.add("el archivo no ubica los mensajes como el diseño: " + PrimeraDiferencia(esperado, real));
+                // Validez = ausencia de ERROR = NOT (parser.hasErrors OR evaluator.hasErrors)
+                boolean hayError = real.stream().anyMatch(l -> l.startsWith(S8 + "ERROR "));
+                String tp = Valor(meta, "TESTPROYECTO|");
+                if (!String.valueOf(!hayError).equals(tp)) dif.add("TestProyecto=" + tp + " con ERROR en el archivo: " + hayError);
+                String he = Valor(meta, "HASERRORS|");
+                if (he == null) {
+                    dif.add("sin HASERRORS");
+                } else {
+                    boolean hp = he.contains("parser=true"), hv = he.contains("evaluator=true");
+                    if (!String.valueOf(!(hp || hv)).equals(tp)) dif.add("TestProyecto=" + tp + " inconsistente con " + he);
+                }
+                if ("true".equals(tp)) nValidos++;
+            }
+            // Fuente intacto
+            Path fuente = trabajo.resolve(c.id).resolve(c.archivo);
+            if (!Files.exists(fuente) || !Arrays.equals(fuentes.get(c.id), Files.readAllBytes(fuente))) dif.add("el fuente cambió");
+            Registrar("propiedad formato y orden " + c.id, dif, r);
+            if (real == null) continue;
+
+            Map<Integer, List<String>> bajo = MensajesPorLinea(real, lineas);
+            boolean[] seguro = LineasConstruidas(lineas);
+
+            // Independencia (decisión 4): print ( (zz) ); construido por el parser da el 303 bajo su línea
+            List<String> difI = new ArrayList<>();
+            boolean aplicaI = false;
+            for (int i = 0; i < lineas.size(); i++) {
+                if (!seguro[i] || !lineas.get(i).trim().equals("print ( (zz) );")) continue;
+                aplicaI = true;
+                if (!bajo.getOrDefault(i + 1, new ArrayList<>()).contains("ERROR 303: Identificador no encontrado [zz].")) {
+                    difI.add("falta el 303 [zz] bajo la línea " + (i + 1) + "; hay " + bajo.getOrDefault(i + 1, new ArrayList<>()));
+                }
+            }
+            if (aplicaI) {
+                nIndep++;
+                Registrar("propiedad independencia " + c.id, difI, r);
+            }
+
+            // Valor inicial (2.16, 3.11): CHAR y := zz; da el 303 bajo su línea; print ( (y) ); posterior sin 303
+            List<String> difV = new ArrayList<>();
+            int linY = -1;
+            for (int i = 0; i < lineas.size(); i++) {
+                if (seguro[i] && lineas.get(i).trim().equals("CHAR y := zz;")) {
+                    linY = i;
+                    break;
+                }
+            }
+            if (linY >= 0) {
+                nValor++;
+                if (!bajo.getOrDefault(linY + 1, new ArrayList<>()).contains("ERROR 303: Identificador no encontrado [zz].")) {
+                    difV.add("falta el 303 [zz] bajo la línea " + (linY + 1) + "; hay " + bajo.getOrDefault(linY + 1, new ArrayList<>()));
+                }
+                for (int j = linY + 1; j < lineas.size(); j++) {
+                    if (!lineas.get(j).trim().equals("print ( (y) );")) continue;
+                    if (bajo.getOrDefault(j + 1, new ArrayList<>()).contains("ERROR 303: Identificador no encontrado [y].")) {
+                        difV.add("print ( (y) ); de la línea " + (j + 1) + " da 303 [y]");
+                    }
+                }
+                Registrar("propiedad valor inicial " + c.id, difV, r);
+            }
+        }
+        System.out.println();
+        System.out.println("Semillas: 200; con mensajes: " + nConMensajes + "; válidas: " + nValidos
+                + "; con print ( (zz) ); construido: " + nIndep + "; con CHAR y := zz; construido: " + nValor);
+        if (nIndep == 0 || nValor == 0 || nConMensajes == 0) System.out.println("AVISO: alguna propiedad no tuvo casos; revisar el generador");
+        ImprimirResumen("propiedades");
+    }
+
+    // Mensajes de la huella con sus 6 campos: [linea, codigo, categoria, lexema, texto, formateado]
+    private static List<String[]> Mensajes6(List<String> meta, String origen) {
+        List<String[]> r = new ArrayList<>();
+        String pref = "MENSAJE|" + origen + "|";
+        for (String l : meta) {
+            if (!l.startsWith(pref)) continue;
+            String[] p = l.substring(pref.length()).split("\\|", -1);
+            String[] f = new String[6];
+            for (int i = 0; i < 6; i++) f[i] = i < p.length ? Desescapar(p[i]) : null;
+            r.add(f);
+        }
+        return r;
+    }
+
+    // Oráculo del archivo: SIN_LINEA al final; 1..n bajo su línea; > n bajo n (o al final si n = 0);
+    // dentro de cada clave, por categoría y luego por orden de detección (parser antes que evaluador)
+    private static List<String> ArchivoDesdeMensajes(List<String> lineas, List<String[]> msj) {
+        int n = lineas.size();
+        List<int[]> orden = new ArrayList<>();
+        for (int i = 0; i < msj.size(); i++) {
+            int linea = Integer.parseInt(msj.get(i)[0]);
+            int clave = linea < 1 ? Integer.MAX_VALUE : (linea <= n ? linea : (n >= 1 ? n : Integer.MAX_VALUE));
+            orden.add(new int[]{clave, CATEGORIAS.indexOf(msj.get(i)[2]), i});
+        }
+        orden.sort(Comparator.<int[]>comparingInt(a -> a[0]).thenComparingInt(a -> a[1]).thenComparingInt(a -> a[2]));
+        List<String> r = new ArrayList<>();
+        int k = 0;
+        for (int i = 1; i <= n; i++) {
+            r.add(String.format("%05d", i) + " " + lineas.get(i - 1));
+            while (k < orden.size() && orden.get(k)[0] == i) r.add(S8 + msj.get(orden.get(k++)[2])[5]);
+        }
+        while (k < orden.size()) r.add(S8 + msj.get(orden.get(k++)[2])[5]);
+        return r;
+    }
+
+    // Mensajes (sin sangría) bajo cada línea numerada; el bloque final queda con la última línea
+    private static Map<Integer, List<String>> MensajesPorLinea(List<String> real, List<String> lineas) {
+        Map<Integer, List<String>> m = new LinkedHashMap<>();
+        int idx = 0;
+        for (String l : real) {
+            if (idx < lineas.size() && l.equals(String.format("%05d", idx + 1) + " " + lineas.get(idx))) {
+                idx++;
+                continue;
+            }
+            m.computeIfAbsent(idx, k -> new ArrayList<>()).add(l.trim());
+        }
+        return m;
+    }
+
+    // Líneas que el parser construye como sentencias de primer nivel: fuera de todo IF del generador
+    // y antes de cualquier anidamiento (un IF sin FI deja su bloque en null y arrastra lo que sigue)
+    private static boolean[] LineasConstruidas(List<String> lineas) {
+        boolean[] r = new boolean[lineas.size()];
+        int abiertos = 0;
+        boolean perdido = false;
+        for (int i = 0; i < lineas.size(); i++) {
+            String t = lineas.get(i).trim();
+            if (t.startsWith("IF ")) {
+                abiertos++;
+                if (abiertos > 1) perdido = true;
+            } else if (t.equals("FI;") && abiertos > 0) {
+                abiertos--;
+            }
+            r[i] = !perdido && abiertos == 0 && !t.startsWith("IF ") && !t.equals("FI;");
+        }
+        return r;
+    }
+
+    // ------------------------------------------------------------------
+    // Tarea 4.8: modo main (Mingol.main en hijos con entorno controlado)
+    // ------------------------------------------------------------------
+
+    // Marca del eco independiente del idioma del JDK ("Causado por:" va delante)
+    private static final String ECO_MARCA = "java.lang.ClassNotFoundException: ";
+    private static final String SYSTEM32 = "C:\\Windows\\System32";
+
+    private static void ModoMain() throws Exception {
+        // Guardia (R8): sin EjecutarA68g, main armaría la cadena de shell vieja y abriría otra consola
+        try {
+            Class.forName("Mingol.Mingol").getDeclaredMethod("EjecutarA68g", String.class);
+        } catch (NoSuchMethodException e) {
+            System.err.println("ABORTADO: Mingol.Mingol no tiene EjecutarA68g (código sin arreglar). No se ejecuta main.");
+            System.exit(2);
+        }
+        Path carpeta = CarpetaSegura();
+        // Todo dentro de %TEMP%\mingol-errores
+        Path base = CarpetaGolden().getParent().resolve("mingol-errores");
+        if (!carpeta.normalize().startsWith(base)) {
+            System.err.println("ABORTADO: el modo main solo corre dentro de " + base);
+            System.exit(2);
+        }
+        Path clases = CarpetaClases();
+        if (clases == null) {
+            System.err.println("ABORTADO: no se encontró build\\classes en el classpath.");
+            System.exit(2);
+        }
+        // Eco: la java.exe del JDK; nunca un script por lotes
+        Path eco = Paths.get(System.getProperty("java.home"), "bin", "java.exe");
+        String nEco = eco.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (!Files.isRegularFile(eco) || nEco.endsWith(".bat") || nEco.endsWith(".cmd")) {
+            System.err.println("ABORTADO: el eco no es un java.exe válido: " + eco);
+            System.exit(2);
+        }
+        // Ningún a68g real al alcance del entorno controlado
+        for (Path p : new Path[]{Paths.get(SYSTEM32, "a68g.exe"), Paths.get(SYSTEM32, "a68g"), clases.resolve("a68g.exe"), clases.resolve("a68g")}) {
+            if (Files.exists(p)) {
+                System.err.println("ABORTADO: existe " + p + "; el entorno controlado no sería seguro.");
+                System.exit(2);
+            }
+        }
+        Path trabajo = carpeta.resolve("main");
+        BorrarArbol(trabajo);
+        Files.createDirectories(trabajo);
+        Path logs = carpeta.resolve("logs-main");
+        BorrarArbol(logs);
+        System.out.println("Carpeta de trabajo: " + trabajo);
+        System.out.println("Eco (A68G): " + eco + "; PATH: " + SYSTEM32 + "; clases: " + clases);
+
+        // Casos: t4, e4 y T10 válidos (invocan el eco); t3 y t7 con errores (no lo invocan)
+        Map<String, Caso> fijos = new LinkedHashMap<>();
+        for (Caso c : Casos()) fijos.put(c.id, c);
+        List<Caso> casos = new ArrayList<>();
+        casos.add(fijos.get("t4"));
+        casos.add(Nuevo("e4", "e4.mingol", "e4.mingol", "e4-errores.txt", "e4.a68", false, "BEGIN", "RETURN 5", "END"));
+        casos.add(fijos.get("t10"));
+        casos.add(fijos.get("t3"));
+        casos.add(fijos.get("t7"));
+        Map<String, Boolean> conEco = new LinkedHashMap<>();
+        conEco.put("t4", true);
+        conEco.put("e4", true);
+        conEco.put("t10", true);
+        conEco.put("t3", false);
+        conEco.put("t7", false);
+
+        for (Caso c : casos) {
+            boolean esperaEco = conEco.get(c.id);
+            Path dirMain = trabajo.resolve(c.id);
+            Path dirRef = trabajo.resolve("ref-" + c.id);
+            byte[] bytes = c.bytes();
+            for (Path d : new Path[]{dirMain, dirRef}) {
+                Files.createDirectories(d);
+                Files.write(d.resolve(c.archivo), bytes);
+            }
+            List<String> d = new ArrayList<>();
+
+            // Referencia: el -errores.txt que produce TestProyecto (hijo por reflexión, sin main)
+            ResultadoHijo ref = LanzarHijo(Arrays.asList("hijopres", c.archivo, c.argumento), dirRef, logs, "ref-" + c.id, false, MAX_HUELLA);
+            ProblemasDeEjecucion(ref, d);
+            Path errRef = dirRef.resolve(c.nombreErrores);
+            if (!Files.exists(errRef)) d.add("TestProyecto no escribió " + c.nombreErrores + " de referencia");
+            String tpRef = Valor(LineasMeta(ref.stdout), "TESTPROYECTO|");
+            if (!String.valueOf(esperaEco).equals(tpRef)) d.add("TestProyecto de referencia=" + tpRef + " (se esperaba " + esperaEco + ")");
+
+            // main real en un hijo con entorno controlado
+            ResultadoHijo r = LanzarMain(Arrays.asList("-cp", clases.toString(), "Mingol.Mingol", c.argumento),
+                    dirMain, logs, "main-" + c.id, eco.toString());
+            if (!r.termino) d.add("main no terminó en " + LIMITE_SEGUNDOS + " s (destroyForcibly)");
+            else if (r.codigo != 0) d.add("código de salida de main " + r.codigo);
+            String traza = PrimeraLineaCon(r.todo(), "\tat ");
+            if (traza != null) d.add("traza: " + traza.trim());
+
+            Path a68 = dirMain.resolve(c.rutaA68).toAbsolutePath();
+            List<String> recibidos = new ArrayList<>();
+            for (String l : r.stderr.split("\\R")) {
+                int i = l.indexOf(ECO_MARCA);
+                if (i >= 0) recibidos.add(l.substring(i + ECO_MARCA.length()));
+            }
+            if (esperaEco) {
+                // El eco recibió exactamente la ruta absoluta del .a68, una sola vez
+                if (recibidos.size() != 1) d.add("el eco se invocó " + recibidos.size() + " veces; stderr: " + Escapar(r.stderr.trim()));
+                else if (!recibidos.get(0).equals(a68.toString())) d.add("argumento del eco [" + recibidos.get(0) + "], esperado [" + a68 + "]");
+            } else {
+                if (!recibidos.isEmpty()) d.add("se invocó el eco con un programa con errores: " + recibidos);
+                String exc = PrimeraLineaCon(r.todo(), "Exception");
+                if (exc != null) d.add("la salida contiene 'Exception': " + exc.trim());
+            }
+
+            // -errores.txt igual al de TestProyecto, fuente intacto y .a68 donde lo pone RutaA68
+            Path errMain = dirMain.resolve(c.nombreErrores);
+            if (!Files.exists(errMain)) d.add("main no escribió " + c.nombreErrores);
+            else if (Files.exists(errRef) && !Arrays.equals(Files.readAllBytes(errRef), Files.readAllBytes(errMain))) {
+                d.add(c.nombreErrores + " de main distinto del de TestProyecto: [" + Escapar(new String(Files.readAllBytes(errMain), StandardCharsets.ISO_8859_1))
+                        + "] / [" + Escapar(new String(Files.readAllBytes(errRef), StandardCharsets.ISO_8859_1)) + "]");
+            }
+            Path fuente = dirMain.resolve(c.archivo);
+            if (!Files.exists(fuente) || !Arrays.equals(bytes, Files.readAllBytes(fuente))) d.add("el fuente cambió");
+            if (!Files.exists(a68)) d.add("no existe " + c.rutaA68);
+            // Ningún .bat/.cmd en la carpeta del caso; el eco no sigue vivo
+            for (String n : ArchivosRec(dirMain)) {
+                String low = n.toLowerCase(java.util.Locale.ROOT);
+                if (low.endsWith(".bat") || low.endsWith(".cmd")) d.add("se creó " + n);
+            }
+            if (ProcesosVivosCon(a68.toString()) > 0) d.add("queda un proceso vivo con " + a68);
+            Registrar("main " + c.id + (esperaEco ? " invoca el eco" : " no invoca el eco")
+                    + (c.id.equals("t10") ? " (T10.MINGOL, fuente intacto)" : ""), d, r);
+        }
+        ImprimirResumen("main");
+    }
+
+    // build\classes: la entrada del classpath que contiene Mingol\Mingol.class
+    private static Path CarpetaClases() {
+        for (String e : System.getProperty("java.class.path").split(File.pathSeparator)) {
+            if (e.isBlank()) continue;
+            Path p = Paths.get(e).toAbsolutePath().normalize();
+            if (Files.exists(p.resolve("Mingol").resolve("Mingol.class"))) return p;
+        }
+        return null;
+    }
+
+    // Mingol.main en un hijo (R8) con el entorno vaciado salvo SystemRoot/TEMP/TMP, más A68G y PATH
+    private static ResultadoHijo LanzarMain(List<String> argsJava, Path dir, Path logs, String nombreLog, String eco) throws Exception {
+        String java = Paths.get(System.getProperty("java.home"), "bin", "java.exe").toString();
+        List<String> comando = new ArrayList<>();
+        comando.add(java);
+        for (String a : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (a.equals("-ea") || a.equals("-enableassertions")) comando.add("-ea");
+        }
+        comando.add("--enable-preview");
+        comando.add("-Xmx256m");
+        comando.addAll(argsJava);
+        ProcessBuilder pb = new ProcessBuilder(comando);
+        Map<String, String> env = pb.environment();
+        String raizSistema = env.get("SystemRoot");
+        String temp = env.get("TEMP");
+        // Nada heredado: ni el PATH del usuario, ni A68G, ni JAVA_TOOL_OPTIONS
+        env.clear();
+        if (raizSistema != null) env.put("SystemRoot", raizSistema);
+        if (temp != null) {
+            env.put("TEMP", temp);
+            env.put("TMP", temp);
+        }
+        env.put("A68G", eco);
+        env.put("PATH", SYSTEM32);
+
+        Files.createDirectories(logs);
+        File out = logs.resolve(nombreLog + ".out").toFile();
+        File err = logs.resolve(nombreLog + ".err").toFile();
+        pb.directory(dir.toFile());
+        pb.redirectOutput(out);
+        pb.redirectError(err);
+        long inicio = System.currentTimeMillis();
+        Process p = pb.start();
+        ResultadoHijo r = new ResultadoHijo();
+        r.termino = p.waitFor(LIMITE_SEGUNDOS, TimeUnit.SECONDS);
+        if (!r.termino) {
+            p.descendants().forEach(ProcessHandle::destroyForcibly);
+            p.destroyForcibly();
+            p.waitFor(5, TimeUnit.SECONDS);
+        } else {
+            r.codigo = p.exitValue();
+        }
+        r.milis = System.currentTimeMillis() - inicio;
+        // main y el eco escriben con la codificación nativa
+        r.stdout = LeerConCodificacion(out.toPath(), Charset.defaultCharset());
+        r.stderr = LeerConCodificacion(err.toPath(), Charset.defaultCharset());
+        return r;
+    }
+
+    private static String LeerConCodificacion(Path p, Charset cs) throws IOException {
+        if (!Files.exists(p)) return "";
+        byte[] b = Files.readAllBytes(p);
+        return new String(b, 0, Math.min(b.length, 64 * 1024), cs);
+    }
+
+    // Procesos vivos cuya línea de comando contiene el texto (el eco no debe sobrevivir a main)
+    private static long ProcesosVivosCon(String texto) {
+        return ProcessHandle.allProcesses()
+                .filter(ph -> ph.info().commandLine().map(cl -> cl.contains(texto)).orElse(false))
+                .count();
+    }
+
+    // ------------------------------------------------------------------
+    // Lanzamiento de hijos (R8), adaptado de PruebasCriticos
+    // ------------------------------------------------------------------
+
+    private static class ResultadoHijo {
+        boolean termino;
+        int codigo = -1;
+        String stdout = "";
+        String stderr = "";
+        long milis;
+
+        String todo() {
+            return stdout + "\n" + stderr;
+        }
+    }
+
+    // Misma java.exe, --enable-preview, -Xmx256m, mismo classpath; -ea si el padre lo usa o si se fuerza
+    private static ResultadoHijo LanzarHijo(List<String> argsHijo, Path directorio, String nombreLog, boolean forzarEa) throws Exception {
+        return LanzarHijo(argsHijo, directorio, nombreLog, forzarEa, 64 * 1024);
+    }
+
+    // Versión con límite de lectura propio (captura/preservación leen la huella completa)
+    private static ResultadoHijo LanzarHijo(List<String> argsHijo, Path directorio, String nombreLog, boolean forzarEa,
+                                            int maxBytes) throws Exception {
+        return LanzarHijo(argsHijo, directorio, directorio.resolve("logs"), nombreLog, forzarEa, maxBytes);
+    }
+
+    // Versión con carpeta de logs propia: en captura/preservación los logs no se mezclan con los archivos del caso
+    private static ResultadoHijo LanzarHijo(List<String> argsHijo, Path directorio, Path logs, String nombreLog,
+                                            boolean forzarEa, int maxBytes) throws Exception {
+        String java = Paths.get(System.getProperty("java.home"), "bin", "java.exe").toString();
+        List<String> comando = new ArrayList<>();
+        comando.add(java);
+        boolean ea = forzarEa;
+        for (String a : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (a.equals("-ea") || a.equals("-enableassertions")) ea = true;
+        }
+        if (ea) comando.add("-ea");
+        comando.add("--enable-preview");
+        comando.add("-Xmx256m");
+        comando.add("-cp");
+        comando.add(System.getProperty("java.class.path"));
+        comando.add("PruebasArchivoErrores");
+        comando.addAll(argsHijo);
+
+        // La salida va a archivos en la carpeta de logs (fuera de los nombres que se comparan)
+        Files.createDirectories(logs);
+        File out = logs.resolve(nombreLog + ".out").toFile();
+        File err = logs.resolve(nombreLog + ".err").toFile();
+
+        ProcessBuilder pb = new ProcessBuilder(comando);
+        pb.directory(directorio.toFile());
+        pb.redirectOutput(out);
+        pb.redirectError(err);
+        long inicio = System.currentTimeMillis();
+        Process p = pb.start();
+        ResultadoHijo r = new ResultadoHijo();
+        r.termino = p.waitFor(LIMITE_SEGUNDOS, TimeUnit.SECONDS);
+        if (!r.termino) {
+            // Se pasó del límite: se mata el hijo y sus descendientes
+            p.descendants().forEach(ProcessHandle::destroyForcibly);
+            p.destroyForcibly();
+            p.waitFor(5, TimeUnit.SECONDS);
+        } else {
+            r.codigo = p.exitValue();
+        }
+        r.milis = System.currentTimeMillis() - inicio;
+        r.stdout = LeerRecortado(out.toPath(), maxBytes);
+        r.stderr = LeerRecortado(err.toPath(), maxBytes);
+        return r;
+    }
+
+    // Lee como mucho maxBytes (un OutOfMemoryError puede dejar mucha salida)
+    private static String LeerRecortado(Path p, int maxBytes) throws IOException {
+        if (!Files.exists(p)) return "";
+        byte[] b = Files.readAllBytes(p);
+        return new String(b, 0, Math.min(b.length, maxBytes), StandardCharsets.UTF_8);
+    }
+
+    // ------------------------------------------------------------------
+    // Utilidades (copiadas y adaptadas de PruebasCriticos)
+    // ------------------------------------------------------------------
+
+    // Carpeta de la captura de las tareas 2 y 3: %TEMP%\mingol-errores-golden
+    private static Path CarpetaGolden() {
+        String temp = System.getenv("TEMP");
+        Path base = (temp != null && !temp.isBlank()) ? Paths.get(temp) : Paths.get(System.getProperty("java.io.tmpdir"));
+        return base.resolve("mingol-errores-golden").toAbsolutePath().normalize();
+    }
+
+    // Borra una carpeta de trabajo del arnés; se niega a borrar fuera de %TEMP% (para las tareas 2 y 3)
+    @SuppressWarnings("unused")
+    private static void BorrarArbol(Path dir) throws IOException {
+        if (!Files.exists(dir)) return;
+        Path temp = CarpetaGolden().getParent().toAbsolutePath().normalize();
+        Path abs = dir.toAbsolutePath().normalize();
+        if (!abs.startsWith(temp) || abs.equals(temp)) {
+            throw new IOException("Se evita borrar fuera de %TEMP%: " + abs);
+        }
+        try (java.util.stream.Stream<Path> s = Files.walk(abs)) {
+            List<Path> todos = new ArrayList<>();
+            s.forEach(todos::add);
+            java.util.Collections.reverse(todos);
+            for (Path p : todos) Files.delete(p);
+        }
+    }
+
+    // Llama por reflexión a un método estático de Mingol.Mingol (también privado), para las tareas 2 a 4.8
+    @SuppressWarnings("unused")
+    private static Object Llamar(String metodo, Class<?>[] tipos, Object... args) throws Exception {
+        Method m = Class.forName("Mingol.Mingol").getDeclaredMethod(metodo, tipos);
+        m.setAccessible(true);
+        try {
+            return m.invoke(null, args);
+        } catch (InvocationTargetException e) {
+            Throwable c = e.getCause();
+            if (c instanceof Exception) throw (Exception) c;
+            throw new RuntimeException(c);
+        }
+    }
+
+    // Primera línea distinta entre el esperado y el real
+    private static String PrimeraDiferencia(List<String> esperado, List<String> real) {
+        int n = Math.max(esperado.size(), real.size());
+        for (int i = 0; i < n; i++) {
+            String e = i < esperado.size() ? esperado.get(i) : "<fin>";
+            String r = i < real.size() ? real.get(i) : "<fin>";
+            if (!e.equals(r)) {
+                return "línea " + (i + 1) + ": esperado [" + e.replace("\t", "<T>") + "], obtenido [" + r.replace("\t", "<T>") + "]";
+            }
+        }
+        return "(sin diferencias)";
+    }
+
+    private static String LineaConPrefijo(String texto, String prefijo) {
+        for (String l : texto.split("\\R")) if (l.startsWith(prefijo)) return l;
+        return null;
+    }
+
+    private static List<String> LineasConPrefijo(String texto, String prefijo) {
+        List<String> r = new ArrayList<>();
+        for (String l : texto.split("\\R")) if (l.startsWith(prefijo)) r.add(l.substring(prefijo.length()));
+        return r;
+    }
+
+    private static String PrimeraLineaCon(String texto, String parte) {
+        for (String l : texto.split("\\R")) if (l.contains(parte)) return l;
+        return null;
+    }
+
+    // Una sola línea por dato: se escapan contrabarras y saltos
+    private static String Escapar(String s) {
+        return s.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n");
+    }
+
+    // Imprime OK/FALLA con las diferencias y lo agrega al resumen
+    private static void Registrar(String caso, List<String> diferencias, ResultadoHijo r) {
+        String info = (r == null) ? "" : " [termino=" + r.termino + ", codigo=" + r.codigo + ", " + r.milis + " ms]";
+        if (diferencias.isEmpty()) {
+            System.out.println("OK    " + caso + info);
+            resumen.add("OK    " + caso);
+        } else {
+            fallas++;
+            System.out.println("FALLA " + caso + info);
+            for (String d : diferencias) System.out.println("      - " + d);
+            resumen.add("FALLA " + caso + ": " + diferencias.get(0));
+        }
+    }
+}

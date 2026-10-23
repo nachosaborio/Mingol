@@ -10,6 +10,8 @@ public class Lexer {
     private String character;
     private int readPosition;
     private int position;
+    // Línea física actual (sube al dejar atrás cada "\n")
+    private int linea = 1;
 
     //Constructor
     public Lexer(String source) {
@@ -53,6 +55,10 @@ public class Lexer {
 
     //Lee el siguiente caracter
     public void ReadCharacter() {
+        // El carácter actual es el que se deja atrás: si es salto de línea, empieza otra línea
+        if ("\n".equals(character)) {
+            linea++;
+        }
         if (readPosition >= source.length()) {
             character = "";
         } else {
@@ -93,13 +99,23 @@ public class Lexer {
 
     //Elimina los espacios en blanco
     private void SkipWhiteSpace() {
-        while (character.matches("^[\\s]$")) {
+        // \s incluía el salto de línea y lo consumía antes del switch, así que case "\n" nunca emitía EOL; ahora se excluye
+        while (character.matches("^[\\s&&[^\\n]]$")) {
             ReadCharacter();
         }
     }
 
-    //Toma el siguiente token y lo clasifica
+    // Envoltorio: anota en el token la línea física donde empieza
     public Token NextToken() {
+        SkipWhiteSpace();
+        int lineaToken = linea;
+        Token t = SiguienteToken();
+        t.setLine(lineaToken);
+        return t;
+    }
+
+    //Toma el siguiente token y lo clasifica
+    private Token SiguienteToken() {
         Token token;
         SkipWhiteSpace();
         switch (character) {

@@ -2,6 +2,8 @@ package Parser;
 
 import java.util.ArrayList;
 
+// Mensajes estructurados para el archivo de errores
+import Errores.Mensaje;
 import Lexer.Lexer;
 import Lexer.MingolToken;
 import Lexer.Token;
@@ -16,12 +18,16 @@ public class Parser {
     private boolean isEnd = false;
     private boolean isComment = false;
     private boolean errorBegin = false;
-    private int linea = 1;
+    // Corrección BUG 1: se eliminó el campo 'linea' porque nunca se incrementaba
+    // (todos los mensajes decían "Linea 1"). Ahora los mensajes usan 'line',
+    // que AdvanceToken() incrementa al consumir cada EOL.
 
     private Lexer lexer;
     private Token currentToken;
     private Token peekToken;
     private ArrayList<String> errors;
+    // Mensajes estructurados, uno por cada cadena de 'errors' y en el mismo orden
+    private ArrayList<Mensaje> mensajes;
     private HashMap<MingolToken, IPrefixParseFn> prefixParseFns;
     private HashMap<MingolToken, IInfixParseFn> infixParseFns;
     private final HashMap<MingolToken, Precedence> PRECEDENCES = new HashMap<MingolToken, Precedence>() {
@@ -43,6 +49,8 @@ public class Parser {
     public Parser(Lexer lexer, Token currentToken, Token peekToken) {
         this.lexer = lexer;
         this.errors = new ArrayList<String>();
+        // Lista paralela a 'errors' para el archivo de errores
+        this.mensajes = new ArrayList<Mensaje>();
         prefixParseFns = RegisterPrefixFns();
         infixParseFns = RegisterInfixFns();
 
@@ -79,7 +87,10 @@ public class Parser {
     private void checkSemicolon(MingolToken mingol) {
         if (peekToken.getTokenType() != MingolToken.EOL
                 && peekToken.getTokenType() != MingolToken.EOF) {
-            errors.add("\tLinea "+ linea +" Error 202: no puede haber nada en la línea luego del token " + mingol);
+            // Corrección BUG 1: usa 'line' (contador real) en lugar de 'linea'.
+            errors.add("\tLinea "+ line +" Error 202: no puede haber nada en la línea luego del token " + mingol);
+            // Mensaje 202 con el token sobrante como lexema
+            mensajes.add(Mensaje.Error(line, 202, "No puede haber nada en la línea después de " + mingol, Lexema(peekToken)));
             hasErrors = true;
         }
         AdvanceToken();
@@ -96,10 +107,36 @@ public class Parser {
     }
 
     private void ExpectedTokenError(MingolToken token) {
-        String error = "\tLinea "+ linea +" Error 204: Se esperaba un token de tipo " + token
+        // Corrección BUG 1: usa 'line' (contador real) en lugar de 'linea'.
+        String error = "\tLinea "+ line +" Error 204: Se esperaba un token de tipo " + token
                 + " pero se obtuvo un " + peekToken.getTokenType();
         errors.add(error);
+        // Mensaje 204 con el token siguiente (el obtenido) como lexema
+        mensajes.add(Mensaje.Error(line, 204, "Se esperaba un token de tipo " + token
+                + " pero se obtuvo " + peekToken.getTokenType(), Lexema(peekToken)));
         hasErrors = true;
+    }
+
+    // Igual que ExpectedTokenError, pero informa el token actual (el que ocupa el lugar del esperado)
+    private void ExpectedCurrentTokenError(MingolToken token) {
+        String error = "\tLinea "+ line +" Error 204: Se esperaba un token de tipo " + token
+                + " pero se obtuvo un " + currentToken.getTokenType();
+        errors.add(error);
+        // Mensaje 204 con el token actual como lexema (EOF al final del archivo, con línea n+1)
+        mensajes.add(Mensaje.Error(line, 204, "Se esperaba un token de tipo " + token
+                + " pero se obtuvo " + currentToken.getTokenType(), Lexema(currentToken)));
+        hasErrors = true;
+    }
+
+    // Lexema para el corchete: nunca un salto de línea ni vacío
+    private String Lexema(Token t) {
+        if ("\n".equals(t.getLiteral())) {
+            return "EOL";
+        }
+        if (t.getLiteral() == null || t.getLiteral().isEmpty()) {
+            return t.getTokenType().toString();
+        }
+        return t.getLiteral();
     }
 
     private boolean ExpectedToken(MingolToken token) {
@@ -113,6 +150,11 @@ public class Parser {
 
     public ArrayList<String> GetErrors() {
         return errors;
+    }
+
+    // Mensajes estructurados del parser (mismo orden que GetErrors())
+    public ArrayList<Mensaje> GetMensajes() {
+        return mensajes;
     }
 
     private void JumpEOL() {
@@ -131,7 +173,9 @@ public class Parser {
         while (currentToken.getTokenType() != MingolToken.FI
                 && currentToken.getTokenType() != MingolToken.ELSE
                 && currentToken.getTokenType() != MingolToken.OD
-                && currentToken.getTokenType() != MingolToken.EOL) {
+                && currentToken.getTokenType() != MingolToken.EOL
+                // Se detiene en EOF: antes el bucle no terminaba al final del archivo
+                && currentToken.getTokenType() != MingolToken.EOF) {
             Statement statement = ParseSatement();
 
             if (statement != null) {
@@ -179,12 +223,19 @@ public class Parser {
                 "El current token es null";
         IPrefixParseFn prefixParseFn = prefixParseFns.get(currentToken.getTokenType());
         if (prefixParseFn == null) {
-            String mensaje = "\tLinea "+ linea +" Error 203: Token inválido: " + currentToken.getLiteral();
+            // Corrección BUG 1: usa 'line' (contador real) en lugar de 'linea'.
+            String mensaje = "\tLinea "+ line +" Error 203: Token inválido: " + currentToken.getLiteral();
             errors.add(mensaje);
+            // Mensaje 203: token que no puede iniciar una expresión
+            mensajes.add(Mensaje.Error(line, 203, "Token que no puede iniciar una expresión", Lexema(currentToken)));
             hasErrors = true;
             return null;
         }
         Expression leftExpression = prefixParseFn.Function();
+        // El prefijo ya registró su error: no se siguen aplicando infijos sobre null
+        if (leftExpression == null) {
+            return null;
+        }
 
         assert peekToken != null :
                 "Peek token es null";
@@ -243,24 +294,35 @@ public class Parser {
         assert peekToken != null :
                 "Peek token es null";
 
+        // Lexema del 201: el valor inicial o, si es null (prefijo fallido), el nombre de la variable
+        String nombre201 = letStatement.getName().toString();
+        String lexema201 = letStatement.getValue() != null ? letStatement.getValue().TokenLiteral() : nombre201;
+
+        // Corrección BUG 1: los tres Error 201 usan 'line' (contador real) en lugar de 'linea'.
         switch (esperado) {
             case TYPESTRING:
                 if (!(letStatement.getValue() instanceof StringLiteral)) {
-                    errors.add("\tLinea "+ linea +" Error 201: " + letStatement.getName().toString() + " no es un STRING");
+                    errors.add("\tLinea "+ line +" Error 201: " + letStatement.getName().toString() + " no es un STRING");
+                    // Mensaje 201: valor inicial que no es STRING
+                    mensajes.add(Mensaje.Error(line, 201, "El valor inicial no corresponde al tipo STRING de la variable " + nombre201, lexema201));
                     hasErrors = true;
                     return null;
                 }
                 break;
             case TYPEINT:
                 if (!(letStatement.getValue() instanceof Integral)) {
-                    errors.add("\tLinea "+ linea +" Error 201: " + letStatement.getName().toString() + " no es un INT");
+                    errors.add("\tLinea "+ line +" Error 201: " + letStatement.getName().toString() + " no es un INT");
+                    // Mensaje 201: valor inicial que no es INT
+                    mensajes.add(Mensaje.Error(line, 201, "El valor inicial no corresponde al tipo INT de la variable " + nombre201, lexema201));
                     hasErrors = true;
                     return null;
                 }
                 break;
             case TYPEREAL:
                 if (!(letStatement.getValue() instanceof Decimal)) {
-                    errors.add("\tLinea "+ linea +" Error 201: " + letStatement.getName().toString() + " no es un REAL");
+                    errors.add("\tLinea "+ line +" Error 201: " + letStatement.getName().toString() + " no es un REAL");
+                    // Mensaje 201: valor inicial que no es REAL
+                    mensajes.add(Mensaje.Error(line, 201, "El valor inicial no corresponde al tipo REAL de la variable " + nombre201, lexema201));
                     hasErrors = true;
                     return null;
                 }
@@ -296,12 +358,18 @@ public class Parser {
             case TYPEREAL:
             case IDENT:
                 return ParseLetStatement();
-            case BEGIN:
+            case BEGIN: {
+                // Se usa el token real (con su línea) en lugar de uno nuevo sin línea
+                Token tokenBegin = currentToken;
                 checkSemicolon(MingolToken.BEGIN);
-                return new Statement(new Token(MingolToken.BEGIN, "BEGIN"));
-            case END:
+                return new Statement(tokenBegin);
+            }
+            case END: {
+                // Se usa el token real (con su línea) en lugar de uno nuevo sin línea
+                Token tokenEnd = currentToken;
                 checkSemicolon(MingolToken.END);
-                return new Statement(new Token(MingolToken.END, "END"));
+                return new Statement(tokenEnd);
+            }
             case RETURN:
                 return ParseReturnStatement();
             default:
@@ -350,8 +418,13 @@ public class Parser {
                 try {
                     integral.setToken(currentToken);
                     integral.setValue(Integer.parseInt(currentToken.getLiteral()));
-                } catch (ClassCastException e) {
-                    System.err.println("Conversion invalida a entero: " + currentToken.getLiteral());
+                } catch (NumberFormatException e) {
+                    // parseInt lanza NumberFormatException (no ClassCastException); antes no se capturaba
+                    // y abortaba el compilador. Ahora se registra como error controlado con su linea.
+                    errors.add("\tLinea "+ line +" Error 203: conversion invalida a entero: " + currentToken.getLiteral());
+                    // Mensaje 102 (léxico): constante no convertible a entero
+                    mensajes.add(Mensaje.Error(line, 102, "Constante numérica no convertible a entero", currentToken.getLiteral()));
+                    hasErrors = true;
                     return null;
                 }
                 return integral;
@@ -366,8 +439,13 @@ public class Parser {
                 Decimal decimal = new Decimal(currentToken);
                 try {
                     decimal.setValue(Double.parseDouble(currentToken.getLiteral()));
-                } catch (ClassCastException e) {
-                    System.err.println("Conversion invalida a entero: " + currentToken.getLiteral());
+                } catch (NumberFormatException e) {
+                    // parseDouble lanza NumberFormatException (no ClassCastException); antes no se capturaba
+                    // y abortaba el compilador. Ahora se registra como error controlado (antes decia "entero").
+                    errors.add("\tLinea "+ line +" Error 203: conversion invalida a real: " + currentToken.getLiteral());
+                    // Mensaje 102 (léxico): constante no convertible a real
+                    mensajes.add(Mensaje.Error(line, 102, "Constante numérica no convertible a real", currentToken.getLiteral()));
+                    hasErrors = true;
                     return null;
                 }
                 return decimal;
@@ -444,6 +522,8 @@ public class Parser {
                 }
                 JumpEOL();
                 if (!currentToken.getTokenType().equals(MingolToken.FI)) {
+                    // Falta FI: se registra el 204 en lugar de devolver null en silencio
+                    ExpectedCurrentTokenError(MingolToken.FI);
                     return null;
                 }
                 while (currentToken.getTokenType().equals(MingolToken.EOL)) {
@@ -669,7 +749,10 @@ public class Parser {
         IPrefixParseFn ParseAlgol = new IPrefixParseFn() {
             @Override
             public Expression Function() {
-                errors.add("\tLinea "+ linea +" ADVERTENCIA: Instruccion " + currentToken.getLiteral() + " no soportada por esta version");
+                // Corrección BUG 1: usa 'line' (contador real) en lugar de 'linea'.
+                errors.add("\tLinea "+ line +" ADVERTENCIA: Instruccion " + currentToken.getLiteral() + " no soportada por esta version");
+                // Advertencia ALGOL con el literal de la instrucción como lexema
+                mensajes.add(Mensaje.Advertencia(line, currentToken.getLiteral()));
                 Token thisToken = currentToken;
                 while (currentToken.getTokenType() != MingolToken.EOL
                         && currentToken.getTokenType() != MingolToken.EOF) {
@@ -695,7 +778,10 @@ public class Parser {
         IPrefixParseFn ParseIllegal = new IPrefixParseFn() {
             @Override
             public Expression Function() {
-                errors.add("\tLinea "+ linea +"Error 205: Token ilegal: " + currentToken.getLiteral());
+                // Corrección BUG 1: usa 'line' (contador real) en lugar de 'linea'.
+                errors.add("\tLinea "+ line +"Error 205: Token ilegal: " + currentToken.getLiteral());
+                // Mensaje 101 (léxico): carácter ilegal
+                mensajes.add(Mensaje.Error(line, 101, "Carácter ilegal", Lexema(currentToken)));
                 hasErrors = true;
                 return null;
             }
