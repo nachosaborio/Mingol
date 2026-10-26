@@ -23,13 +23,14 @@ java --enable-preview -jar Mingol.jar <Programa>.MINGOL
 3. Genera `<Programa>-errores.txt` en la carpeta desde donde se ejecuta, con cada línea del fuente numerada a 5 dígitos y los mensajes debajo de la línea donde ocurren:
 
    ```
-   00003 x = 3;
-           ERROR 204: Se esperaba un token de tipo IDENT pero se obtuvo EQ [=].
-   00004 print ( (b) );
-           ERROR 303: Identificador no encontrado [b].
+   00002 print ( (Factor1) );
+           ERROR 103: Identificador con mayúsculas [Factor1].
+           ERROR 303: Identificador no encontrado [Factor1].
+   00003 REAL r := 1.;
+           ERROR 109: Constante real sin dígito antes o después del punto [1.].
    ```
 
-   Los códigos siguen el esquema 1xx léxico, 2xx sintáctico y 3xx semántico. Las instrucciones de ALGOL que MINGOL no soporta generan una advertencia, que no impide la ejecución.
+   Los códigos siguen el esquema 1xx léxico, 2xx sintáctico y 3xx semántico. Se reportan todos los errores de todas las líneas; en cada línea se listan primero los léxicos, después los sintácticos y al final los semánticos. Las instrucciones de ALGOL que MINGOL no soporta generan una advertencia, que no impide la ejecución.
 4. Si no hay errores, copia el fuente a `<Programa>.a68` y lo ejecuta con `a68g` en la misma consola.
 
 La extensión `.MINGOL` puede omitirse al invocarlo.
@@ -71,7 +72,13 @@ Los arneses de `tests/arneses` se corren con un script de PowerShell (necesita J
 powershell -ExecutionPolicy Bypass -File tests\ci\ejecutar-pruebas.ps1
 ```
 
+- `PruebasCriticos`: los errores críticos (cuelgues, excepciones, invocación de `a68g`).
+- `PruebasArchivoErrores`: el formato y el orden del archivo de errores.
+- `PruebasLexico`: el analizador léxico (identificadores, comentarios, constantes, longitud de línea, operadores y palabras reservadas).
+
 Trabajan siempre en una carpeta temporal y nunca ejecutan el `a68g` real: usan `java.exe` como sustituto.
+
+En Windows PowerShell 5.1 conviene redirigir solo la salida estándar del script (`> log`): si también se redirige la de errores, el aviso `unchecked` de `javac` lo corta.
 
 ## CI/CD
 
@@ -95,7 +102,7 @@ El flujo de [GitHub Actions](.github/workflows/ci.yml) corre en Windows:
 
 ## Estado
 
-Las correcciones de los errores críticos y del formato del archivo de errores están hechas. Quedan pendientes las validaciones de léxico, sintaxis, semántica y del nombre del archivo de entrada.
+Están hechas las correcciones de los errores críticos, el formato del archivo de errores y el analizador léxico (identificadores, comentarios, constantes, longitud de línea, operadores y palabras reservadas). Quedan pendientes la sintaxis, la semántica y la validación del nombre del archivo de entrada, por lo que los programas de ejemplo (`proyecto.mingol`, `prueba.mingol`) todavía no pasan el análisis.
 
 ## Créditos
 

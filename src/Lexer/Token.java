@@ -38,9 +38,11 @@ public class Token {
         return result;
     }
 
-    public static MingolToken LookupTokenType(String literal) {
+    // Tabla de reservadas: static final, se construye una sola vez
+    private static final Map<String, MingolToken> keywords = new HashMap<>();
+
+    static {
         //Diccionario con los tokens 
-        Map keywords = new HashMap<String, MingolToken>();
         keywords.put("BEGIN", MingolToken.BEGIN);
         keywords.put("BY", MingolToken.BY);
         keywords.put("CHAR", MingolToken.TYPECHAR);
@@ -50,7 +52,8 @@ public class Token {
         keywords.put("ELSE", MingolToken.ELSE);
         keywords.put("END", MingolToken.END);
         keywords.put("EQ", MingolToken.EQ);
-        keywords.put("FALSE", MingolToken.FALSE);
+        // FALSE es reservada de ALGOL, no de MINGOL (REQ-ALGOL-03)
+        keywords.put("FALSE", MingolToken.ALGOL);
         keywords.put("FI", MingolToken.FI);
         keywords.put("FOR", MingolToken.FOR);
         keywords.put("FROM", MingolToken.FROM);
@@ -67,15 +70,17 @@ public class Token {
         keywords.put("print", MingolToken.PRINT);
         keywords.put("read", MingolToken.READ);
         keywords.put("REAL", MingolToken.TYPEREAL);
-        keywords.put("RETURN", MingolToken.RETURN);
+        // Se quitó la entrada MINGOL de RETURN: la ALGOL de más abajo ya la pisaba
         keywords.put("SKIP", MingolToken.SKIP);
-        keywords.put("STRING", MingolToken.TYPESTRING);
+        // STRING es reservada de ALGOL, no de MINGOL (REQ-ALGOL-03)
+        keywords.put("STRING", MingolToken.ALGOL);
         keywords.put("THEN", MingolToken.THEN);
         keywords.put("TO", MingolToken.TO);
-        keywords.put("TRUE", MingolToken.TRUE);
+        // TRUE es reservada de ALGOL, no de MINGOL (REQ-ALGOL-03)
+        keywords.put("TRUE", MingolToken.ALGOL);
 //        keywords.put("newline", MingolToken.NEWLINE);
         //ALGOL TOKENS
-        keywords.put("",MingolToken.ALGOL);
+        // Se quitó la clave vacía "": no es una palabra reservada
         keywords.put("ABS", MingolToken.ALGOL);
         keywords.put("AND", MingolToken.ALGOL);
         keywords.put("ARG", MingolToken.ALGOL);
@@ -94,7 +99,8 @@ public class Token {
         keywords.put("DYAD",MingolToken.ALGOL);
         keywords.put("ELEM",MingolToken.ALGOL);
         keywords.put("ELSIF",MingolToken.ALGOL);
-        keywords.put("ENTRIER",MingolToken.ALGOL);
+        // Errata corregida: ENTRIER -> ENTIER
+        keywords.put("ENTIER",MingolToken.ALGOL);
         keywords.put("FILE", MingolToken.ALGOL);
         keywords.put("FLEX",MingolToken.ALGOL);
         keywords.put("FORMAT",MingolToken.ALGOL);
@@ -120,6 +126,8 @@ public class Token {
         keywords.put("PLUSAB",MingolToken.ALGOL);
         keywords.put("PLUSTO",MingolToken.ALGOL);
         keywords.put("PR",MingolToken.ALGOL);
+        // PRAGMA faltaba (decisión 2: se aceptan PRAGMA y PRAGMAT)
+        keywords.put("PRAGMA",MingolToken.ALGOL);
         keywords.put("PRAGMAT",MingolToken.ALGOL);
         keywords.put("PRELUDE",MingolToken.ALGOL);
         keywords.put("PRIO",MingolToken.ALGOL);
@@ -222,6 +230,8 @@ public class Token {
         keywords.put("getchar",MingolToken.ALGOL);
         keywords.put("getf",MingolToken.ALGOL);
         keywords.put("graph",MingolToken.ALGOL);
+        // grep faltaba en la tabla (REQ-ALGOL-03)
+        keywords.put("grep",MingolToken.ALGOL);
         keywords.put("halt",MingolToken.ALGOL);
         keywords.put("heap",MingolToken.ALGOL);
         keywords.put("http",MingolToken.ALGOL);
@@ -232,7 +242,8 @@ public class Token {
         keywords.put("inverse",MingolToken.ALGOL);
         keywords.put("is",MingolToken.ALGOL);
         keywords.put("last",MingolToken.ALGOL);
-        keywords.put("lenghts",MingolToken.ALGOL);
+        // Errata corregida: lenghts -> lengths
+        keywords.put("lengths",MingolToken.ALGOL);
         keywords.put("line",MingolToken.ALGOL);
         keywords.put("linestyle",MingolToken.ALGOL);
         keywords.put("linewidth",MingolToken.ALGOL);
@@ -284,7 +295,7 @@ public class Token {
         keywords.put("sin",MingolToken.ALGOL);
         keywords.put("sinh",MingolToken.ALGOL);
         keywords.put("size",MingolToken.ALGOL);
-        keywords.put("size=INT",MingolToken.ALGOL); //?????????
+        // Se quitó la clave "size=INT": no es una palabra reservada
         keywords.put("small",MingolToken.ALGOL);
         keywords.put("sound",MingolToken.ALGOL);
         keywords.put("space",MingolToken.ALGOL);
@@ -312,12 +323,20 @@ public class Token {
         keywords.put("window",MingolToken.ALGOL);
         keywords.put("write",MingolToken.ALGOL);
         keywords.put("xdigit",MingolToken.ALGOL);
+    }
 
-        MingolToken elToken = (MingolToken) keywords.get(literal);
+    // La búsqueda no cambia; solo usa el mapa ya construido
+    public static MingolToken LookupTokenType(String literal) {
+        MingolToken elToken = keywords.get(literal);
         if (elToken != null) {
             return elToken;
         } else {
             return MingolToken.IDENT;
         }
+    }
+
+    // Verdadero si el literal es palabra reservada de MINGOL o de ALGOL (para el 106)
+    public static boolean EsReservada(String literal) {
+        return LookupTokenType(literal) != MingolToken.IDENT;
     }
 }

@@ -683,7 +683,7 @@ public class PruebasArchivoErrores {
                 l.add("@");
                 return;
             case 12:
-                // Fuera de rango: no convertible (12345678901) o fuera de -32768..32767 (99999)
+                // Fuera de rango: 12345678901 y 99999 dan solo 108 (comportamiento léxico corregido, 3.10)
                 l.add("INT " + ElegirG(r, VARS_G) + " := " + (r.nextBoolean() ? "12345678901" : "99999") + ";");
                 return;
             case 13:
@@ -1301,13 +1301,14 @@ public class PruebasArchivoErrores {
         }
 
         // R6 (arreglo 3): 12345678901 da un error controlado, sin excepción
+        // Actualizado por un comportamiento léxico corregido (3.10): ahora es un 108 [12345678901] en GetMensajes()
         d = new ArrayList<>();
         try {
             Parser p = new Parser(new Lexer("BEGIN\nINT a := 12345678901;\nEND\n"));
             p.ParseProgram();
-            boolean hay = p.GetErrors().stream().anyMatch(e -> e.startsWith("\tLinea 2 ") && e.contains("12345678901")
-                    && e.contains("conversion invalida a entero"));
-            if (!hay) d.add("no está el error de conversión en la línea 2: " + p.GetErrors());
+            boolean hay = p.GetMensajes().stream().anyMatch(m -> Integer.valueOf(108).equals(m.getCodigo())
+                    && "12345678901".equals(m.getLexema()));
+            if (!hay) d.add("no está el 108 [12345678901]: " + Formateados(p.GetMensajes()));
             if (!p.hasErrors) d.add("hasErrors=false");
         } catch (Throwable t) {
             d.add("excepción " + t.getClass().getName());
@@ -1807,32 +1808,54 @@ public class PruebasArchivoErrores {
 
     // Líneas de los tokens: líneas vacías y con espacios, cadena y comentario de varias líneas, EOL y EOF
     private static void UnitariasLexer() {
-        String fuente = String.join("\n", "", "BEGIN", "   ", "print ( \"a", "b\" );", "# comentario", "de dos lineas #", "END") + "\n";
-        Lexer lx = new Lexer(fuente);
-        List<Token> toks = new ArrayList<>();
-        for (int i = 0; i < 1000; i++) {
-            Token t = lx.NextToken();
-            toks.add(t);
-            if (t.getTokenType() == MingolToken.EOF) break;
-        }
+        // Actualizado por un comportamiento léxico corregido (3.10): el texto ya no abarca dos líneas (L5);
+        // la línea 5 queda vacía para conservar el comentario en la 6 y 7, END en la 8 y EOF en la 9
+        String fuente = String.join("\n", "", "BEGIN", "   ", "print ( \"a b\" );", "", "# comentario", "de dos lineas #", "END") + "\n";
+        List<Token> toks = Tokens(new Lexer(fuente));
         List<Integer> eol = new ArrayList<>();
         Map<String, Integer> primera = new LinkedHashMap<>();
         for (Token t : toks) {
             if (t.getTokenType() == MingolToken.EOL) eol.add(t.getLine());
             else primera.putIfAbsent(t.getTokenType() + ":" + t.getLiteral(), t.getLine());
         }
-        // El salto de la línea 4 está dentro de la cadena: no hay EOL de la 4
-        Igual("Lexer EOL con la línea que termina", Arrays.asList(1, 2, 3, 5, 6, 7, 8), eol);
+        // 3.10: el texto termina en su línea, así que también hay EOL de la 4
+        Igual("Lexer EOL con la línea que termina", Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8), eol);
         Igual("Lexer BEGIN tras una línea vacía", 2, primera.get("BEGIN:BEGIN"));
-        Igual("Lexer cadena de dos líneas empieza en la 4", 4, primera.get("STRING:a\nb"));
-        Igual("Lexer ')' después de la cadena, en la 5", 5, primera.get("RPAREN:)"));
-        Igual("Lexer apertura del comentario en la 6", 6, primera.get("COMMENT:#"));
-        Integer de = null;
-        for (Token t : toks) if (t.getLiteral().equals("de")) { de = t.getLine(); break; }
-        Igual("Lexer texto del comentario en la 7", 7, de);
+        Igual("Lexer texto de una línea en la 4", 4, primera.get("STRING:a b"));
+        // 3.10: el comentario lo salta el lexer: entre apertura y cierre solo los EOL de la 6 y la 7
+        List<String> enComentario = new ArrayList<>();
+        for (Token t : toks) {
+            if ((t.getLine() == 6 || t.getLine() == 7) && t.getTokenType() != MingolToken.EOL) {
+                enComentario.add(t.getTokenType() + ":" + Escapar(t.getLiteral()) + "@" + t.getLine());
+            }
+        }
+        Igual("Lexer ningún token dentro del comentario salvo EOL", new ArrayList<String>(), enComentario);
         Igual("Lexer END en la 8", 8, primera.get("END:END"));
         Token ultimo = toks.get(toks.size() - 1);
         Igual("Lexer EOF con n+1", "EOF|9", ultimo.getTokenType() + "|" + ultimo.getLine());
+
+        // 3.10: texto sin cerrar (L5): 112 en la 4 y el texto termina en su línea, con EOL de la 4
+        // La línea 5 va sin comillas: si tuviera una, abriría otro texto sin cerrar (otro 112)
+        String sinCerrar = String.join("\n", "", "BEGIN", "   ", "print ( \"a", "b );", "END") + "\n";
+        Lexer ls = new Lexer(sinCerrar);
+        List<Token> ts = Tokens(ls);
+        List<String> m112 = new ArrayList<>();
+        for (Mensaje m : ls.GetMensajes()) if (Integer.valueOf(112).equals(m.getCodigo())) m112.add(String.valueOf(m.getLinea()));
+        Igual("Lexer texto sin cerrar: 112 en la 4", Arrays.asList("4"), m112);
+        boolean eol4 = false;
+        for (Token t : ts) if (t.getTokenType() == MingolToken.EOL && t.getLine() == 4) eol4 = true;
+        Igual("Lexer texto sin cerrar: EOL en la 4", true, eol4);
+    }
+
+    // Todos los tokens hasta EOF (con tope por seguridad)
+    private static List<Token> Tokens(Lexer lx) {
+        List<Token> toks = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            Token t = lx.NextToken();
+            toks.add(t);
+            if (t.getTokenType() == MingolToken.EOF) break;
+        }
+        return toks;
     }
 
     // e8: el 204 de ExpectedCurrentTokenError con lexema EOF y línea n+1 = 6

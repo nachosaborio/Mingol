@@ -25,7 +25,8 @@ $logs = $Logs
 New-Item -ItemType Directory -Force $arnes, $logs | Out-Null
 
 # Compila los arneses contra build\classes
-$fuentes = "RunTestProyecto", "PruebasArchivoErrores", "PruebasCriticos" |
+# Área 2: se suma PruebasLexico
+$fuentes = "RunTestProyecto", "PruebasArchivoErrores", "PruebasCriticos", "PruebasLexico" |
     ForEach-Object { Join-Path $Repo "tests\arneses\$_.java" }
 & javac -encoding UTF-8 -nowarn -cp $clases -d $arnes @fuentes
 if ($LASTEXITCODE -ne 0) { throw "No compilaron los arneses." }
@@ -72,6 +73,8 @@ function Correr([string]$clase, [string]$modo, [string]$carpeta, [bool]$ea) {
 
 $errores = Join-Path $env:TEMP "mingol-errores"
 $criticos = Join-Path $env:TEMP "mingol-criticos"
+# Carpeta de trabajo de PruebasLexico (área 2)
+$lexico = Join-Path $env:TEMP "mingol-lexico"
 
 # Área 1 (archivo de errores) y regresión de críticos. Sin 'preservacion': necesita una captura del código viejo
 foreach ($modo in "ejemplos", "unitarias", "propiedades", "main") {
@@ -80,12 +83,18 @@ foreach ($modo in "ejemplos", "unitarias", "propiedades", "main") {
 foreach ($modo in "unitarias", "main") {
     $resultados += Correr "PruebasCriticos" $modo $criticos $false
 }
+# Área 2 (léxico). Sin 'exploracion' ni 'capturar'/'preservacion': dependen del código sin arreglar y de su captura
+foreach ($modo in "unitarias", "propiedades") {
+    $resultados += Correr "PruebasLexico" $modo $lexico $false
+}
 # Segunda pasada con aserciones (NetBeans ejecuta con -ea)
 if (-not $SinEa) {
     foreach ($modo in "ejemplos", "unitarias") {
         $resultados += Correr "PruebasArchivoErrores" $modo $errores $true
     }
     $resultados += Correr "PruebasCriticos" "unitarias" $criticos $true
+    # Área 2 con aserciones
+    $resultados += Correr "PruebasLexico" "unitarias" $lexico $true
 }
 
 $fallidos = @($resultados | Where-Object { $_.Codigo -ne 0 })

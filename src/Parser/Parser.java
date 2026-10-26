@@ -1,6 +1,9 @@
 package Parser;
 
 import java.util.ArrayList;
+// Magnitudes de constantes sin depender de int/double (L4)
+import java.math.BigDecimal;
+import java.math.BigInteger;
 
 // Mensajes estructurados para el archivo de errores
 import Errores.Mensaje;
@@ -25,6 +28,12 @@ public class Parser {
     private Lexer lexer;
     private Token currentToken;
     private Token peekToken;
+    // Token anterior del flujo (el currentToken que deja AdvanceToken); null al inicio
+    private Token anterior;
+    // Primer token del último comando (posición de comando); lo usa ParseAlgol (L7)
+    private Token tokenDeComando;
+    // Constante INTEGER/REAL precedida por un '-' unario (L4); se compara por identidad
+    private Token constanteNegada;
     private ArrayList<String> errors;
     // Mensajes estructurados, uno por cada cadena de 'errors' y en el mismo orden
     private ArrayList<Mensaje> mensajes;
@@ -73,6 +82,10 @@ public class Parser {
             AdvanceToken();
         }
 
+        // Los errores léxicos (1xx) también invalidan el programa
+        if (lexer.HayErrores()) {
+            hasErrors = true;
+        }
         return program;
     }
 
@@ -80,8 +93,17 @@ public class Parser {
         if(currentToken != null && currentToken.getTokenType().equals(MingolToken.EOL)){
             line++;
         }
+        // Único lugar donde avanza el flujo: guarda el token que se deja
+        anterior = currentToken;
         currentToken = peekToken;
         peekToken = lexer.NextToken();
+    }
+
+    // Posición de comando: inicio del archivo o después de EOL o ';'
+    private boolean EsInicioDeComando() {
+        return anterior == null
+                || anterior.getTokenType() == MingolToken.EOL
+                || anterior.getTokenType() == MingolToken.SEMICOLON;
     }
 
     private void checkSemicolon(MingolToken mingol) {
@@ -115,6 +137,32 @@ public class Parser {
         mensajes.add(Mensaje.Error(line, 204, "Se esperaba un token de tipo " + token
                 + " pero se obtuvo " + peekToken.getTokenType(), Lexema(peekToken)));
         hasErrors = true;
+    }
+
+    // Constante entera con el rango de L4 (la usan ParseInteger y ParseFor).
+    // Magnitud > 32768: el lexer ya dio el 108. 32768 sin '-' unario: 108 aquí.
+    // Nunca devuelve null por rango (sin 201 en cascada); solo por una conversión fallida (102).
+    private Integral ConstanteEntera(Token t, boolean negada) {
+        Integral integral = new Integral(t);
+        try {
+            BigInteger m = new BigInteger(t.getLiteral());
+            if (m.compareTo(Lexer.MAX_MAGNITUD_ENTERA) == 0 && !negada) {
+                // Mensaje 108 (léxico) en la línea física de la constante
+                errors.add("\tLinea "+ t.getLine() +" Error 108: Constante entera fuera de rango: " + t.getLiteral());
+                mensajes.add(Mensaje.Error(t.getLine(), 108, "Constante entera fuera de rango", t.getLiteral()));
+                hasErrors = true;
+            }
+            // Valor acotado a int para no desbordar
+            integral.setValue(m.min(BigInteger.valueOf(Integer.MAX_VALUE)).intValue());
+        } catch (NumberFormatException e) {
+            // Se conserva el 102 controlado para una conversión que no sea de rango (3.8)
+            errors.add("\tLinea "+ line +" Error 203: conversion invalida a entero: " + t.getLiteral());
+            // Mensaje 102 (léxico): constante no convertible a entero
+            mensajes.add(Mensaje.Error(line, 102, "Constante numérica no convertible a entero", t.getLiteral()));
+            hasErrors = true;
+            return null;
+        }
+        return integral;
     }
 
     // Igual que ExpectedTokenError, pero informa el token actual (el que ocupa el lugar del esperado)
@@ -152,9 +200,12 @@ public class Parser {
         return errors;
     }
 
-    // Mensajes estructurados del parser (mismo orden que GetErrors())
+    // Lista nueva: primero los mensajes del lexer y después los del parser
+    // (los del parser siguen en el mismo orden que GetErrors())
     public ArrayList<Mensaje> GetMensajes() {
-        return mensajes;
+        ArrayList<Mensaje> todos = new ArrayList<>(lexer.GetMensajes());
+        todos.addAll(mensajes);
+        return todos;
     }
 
     private void JumpEOL() {
@@ -351,6 +402,15 @@ public class Parser {
     private Statement ParseSatement() {
         assert currentToken != null :
                 "El current token es null";
+        // Posición de comando: se recuerda el token y, si es un IDENT que no
+        // va seguido de ':=', no es identificador sino comando (L2): sin 103
+        if (EsInicioDeComando()) {
+            tokenDeComando = currentToken;
+            if (currentToken.getTokenType() == MingolToken.IDENT
+                    && peekToken.getTokenType() != MingolToken.ASSIGN) {
+                lexer.RetirarMayusculas(currentToken);
+            }
+        }
         switch (currentToken.getTokenType()) {
             case TYPEINT:
             case TYPESTRING:
@@ -414,20 +474,8 @@ public class Parser {
             public Expression Function() {
                 assert currentToken != null :
                         "Current token es null";
-                Integral integral = new Integral(currentToken);
-                try {
-                    integral.setToken(currentToken);
-                    integral.setValue(Integer.parseInt(currentToken.getLiteral()));
-                } catch (NumberFormatException e) {
-                    // parseInt lanza NumberFormatException (no ClassCastException); antes no se capturaba
-                    // y abortaba el compilador. Ahora se registra como error controlado con su linea.
-                    errors.add("\tLinea "+ line +" Error 203: conversion invalida a entero: " + currentToken.getLiteral());
-                    // Mensaje 102 (léxico): constante no convertible a entero
-                    mensajes.add(Mensaje.Error(line, 102, "Constante numérica no convertible a entero", currentToken.getLiteral()));
-                    hasErrors = true;
-                    return null;
-                }
-                return integral;
+                // Rango con '-' unario (L4): negada si es la constante que guardó ParsePrefixExpressions
+                return ConstanteEntera(currentToken, currentToken == constanteNegada);
             }
         };
 
@@ -438,6 +486,16 @@ public class Parser {
                         "Current token es null";
                 Decimal decimal = new Decimal(currentToken);
                 try {
+                    // Rango con '-' unario (L4); > 32768.99 ya lo reportó el lexer (no se duplica)
+                    BigDecimal m = new BigDecimal(currentToken.getLiteral());
+                    boolean negada = currentToken == constanteNegada;
+                    if (m.compareTo(Lexer.MAX_MAGNITUD_REAL) <= 0
+                            && m.compareTo(negada ? Lexer.MAX_REAL_NEGATIVO : Lexer.MAX_REAL_POSITIVO) > 0) {
+                        // Mensaje 110 (léxico) en la línea física de la constante
+                        errors.add("\tLinea "+ currentToken.getLine() +" Error 110: Constante real fuera de rango: " + currentToken.getLiteral());
+                        mensajes.add(Mensaje.Error(currentToken.getLine(), 110, "Constante real fuera de rango", currentToken.getLiteral()));
+                        hasErrors = true;
+                    }
                     decimal.setValue(Double.parseDouble(currentToken.getLiteral()));
                 } catch (NumberFormatException e) {
                     // parseDouble lanza NumberFormatException (no ClassCastException); antes no se capturaba
@@ -459,6 +517,12 @@ public class Parser {
                 assert currentToken != null :
                         "Current token es null";
                 Prefix prefixExpression = new Prefix(currentToken, currentToken.getLiteral());
+                // '-' unario delante de una constante: se recuerda para el rango (L4)
+                if (currentToken.getTokenType() == MingolToken.SUBSTRACTION
+                        && (peekToken.getTokenType() == MingolToken.INTEGER
+                            || peekToken.getTokenType() == MingolToken.REAL)) {
+                    constanteNegada = peekToken;
+                }
                 AdvanceToken();
                 prefixExpression.setRight(ParseExpression(Precedence.PREFIX));
                 return prefixExpression;
@@ -562,7 +626,12 @@ public class Parser {
                 if (currentToken.getTokenType().equals(MingolToken.IDENT)) {
                     forExpression.setMinima(new Identifier(currentToken, currentToken.getLiteral()));
                 } else {
-                    forExpression.setMinima(new Integral(currentToken, Integer.parseInt(currentToken.getLiteral())));
+                    // Rango L4 sin NumberFormatException; null solo si la conversión falla (102): For.toString no tolera null
+                    Integral minima = ConstanteEntera(currentToken, false);
+                    if (minima == null) {
+                        return null;
+                    }
+                    forExpression.setMinima(minima);
                 }
                 JumpEOL();
                 //BY
@@ -579,7 +648,12 @@ public class Parser {
                 if (currentToken.getTokenType().equals(MingolToken.IDENT)) {
                     forExpression.setIncremento(new Identifier(currentToken, currentToken.getLiteral()));
                 } else {
-                    forExpression.setIncremento(new Integral(currentToken, Integer.parseInt(currentToken.getLiteral())));
+                    // Igual que FROM: constante con rango L4, null solo por 102
+                    Integral incremento = ConstanteEntera(currentToken, false);
+                    if (incremento == null) {
+                        return null;
+                    }
+                    forExpression.setIncremento(incremento);
                 }
                 JumpEOL();
                 //TO
@@ -596,7 +670,12 @@ public class Parser {
                 if (currentToken.getTokenType().equals(MingolToken.IDENT)) {
                     forExpression.setMaxima(new Identifier(currentToken, currentToken.getLiteral()));
                 } else {
-                    forExpression.setMaxima(new Integral(currentToken, Integer.parseInt(currentToken.getLiteral())));
+                    // Igual que FROM: constante con rango L4, null solo por 102
+                    Integral maxima = ConstanteEntera(currentToken, false);
+                    if (maxima == null) {
+                        return null;
+                    }
+                    forExpression.setMaxima(maxima);
                 }
                 AdvanceToken();
                 JumpEOL();
@@ -749,6 +828,12 @@ public class Parser {
         IPrefixParseFn ParseAlgol = new IPrefixParseFn() {
             @Override
             public Expression Function() {
+                // L7: TRUE/FALSE fuera de posición de comando siguen siendo Booleano, sin advertencia
+                String literal = currentToken.getLiteral();
+                if ((literal.equals("TRUE") || literal.equals("FALSE"))
+                        && currentToken != tokenDeComando) {
+                    return new Booleano(currentToken, literal.equals("TRUE"));
+                }
                 // Corrección BUG 1: usa 'line' (contador real) en lugar de 'linea'.
                 errors.add("\tLinea "+ line +" ADVERTENCIA: Instruccion " + currentToken.getLiteral() + " no soportada por esta version");
                 // Advertencia ALGOL con el literal de la instrucción como lexema
