@@ -1,5 +1,7 @@
 package Evaluador;
 
+// Área 4: nodos que valida el evaluador (asignación, FOR, read)
+import Parser.Asignacion;
 import Parser.Block;
 import Parser.Booleano;
 import Parser.Decimal;
@@ -7,6 +9,7 @@ import Parser.Declaracion;
 import Parser.Etiqueta;
 import Parser.Expression;
 import Parser.ExpressionStatement;
+import Parser.For;
 import Parser.Goto;
 import Parser.Identifier;
 import Parser.If;
@@ -17,6 +20,7 @@ import Parser.LetStatement;
 import Parser.Prefix;
 import Parser.Print;
 import Parser.Program;
+import Parser.Read;
 import Parser.Secuencia;
 import Parser.Statement;
 import Parser.StringLiteral;
@@ -40,6 +44,10 @@ public class Evaluator {
     private static String AlreadyEnded = "\tError 306: No puede haber más de una sentencia END por archivo.";
     private static String NotBegined = "\tError 307: No se encontró una sentencia BEGIN.";
     private static String NotEnded = "\tError 308: No se encontró una sentencia END.";
+    // Área 4: textos del Errado para 309, 310 y 311 (se usan en asignación y FOR)
+    private static String CharLargo = "\tError 309: Un CHAR es un solo carácter:";
+    private static String CicloNoEntero = "\tError 310: La variable de ciclo del FOR no es INT:";
+    private static String RangoNoEntero = "\tError 311: Valor de FROM/BY/TO no es constante entera ni variable INT:";
 
     // Mensajes registrados por el evaluador desde el último Reiniciar()
     public static ArrayList<Mensaje> GetMensajes() {
@@ -62,6 +70,8 @@ public class Evaluator {
         switch (className) {
             case "Program":
                 Program program = (Program) node;
+                // Área 4: pasada previa que registra todas las etiquetas (GOTO hacia adelante, M9)
+                RegistrarEtiquetas(program.statements, env);
                 Objeto evaluado = EvaluateProgram(program, env);
                 // Tras recorrer todo el programa: 307 y/o 308 solo si de verdad falta BEGIN/END
                 Errado faltante = null;
@@ -166,6 +176,11 @@ public class Evaluator {
                 if (env.get(let.getName().getValue()) == null) {
                     // Se guarda aunque sea un Errado: la variable cuenta como declarada (sin 303 en cascada)
                     env.put(let.getName().getValue(), value);
+                    // Área 4 (DM2): el tipo declarado sale del token del LetStatement; una repetida no lo cambia
+                    String tipoLet = let.TokenLiteral();
+                    if ("INT".equals(tipoLet) || "REAL".equals(tipoLet) || "CHAR".equals(tipoLet)) {
+                        env.DeclararTipo(let.getName().getValue(), tipoLet);
+                    }
                 } else {
                     Errado repetido = NewError(let.getName().getLine(), 304, "Identificador ya declarado",
                             let.getName().getValue(), RepeatedIdentificator,
@@ -201,8 +216,70 @@ public class Evaluator {
                 }
                 return primeroSecuencia;
             case "Asignacion":
-                // Área 3 (DS4): la asignación no se evalúa; sus validaciones son del área 4
-                return null;
+                // Área 4 (2.3–2.6): 303 de izquierda y operandos, 301 por operando incompatible, 309; sin calcular
+                Asignacion asignacion = (Asignacion) node;
+                Errado primeroAsignacion = null;
+                String tipoIzq = null;
+                Identifier izquierda = asignacion.getVariable();
+                if (izquierda != null) {
+                    if (!env.EsVariable(izquierda.getValue())) {
+                        // Izquierda inexistente o etiqueta: 303 y sin revisión de tipos
+                        primeroAsignacion = NewError(izquierda.getLine(), 303, "Identificador no encontrado",
+                                izquierda.getValue(), UnknownIdentifier, new String[]{izquierda.getValue()});
+                    } else {
+                        tipoIzq = env.TipoDe(izquierda.getValue());
+                    }
+                }
+                Secuencia derecha = asignacion.getExpresion();
+                if (derecha != null) {
+                    // Operandos en orden del fuente; las palabras ALGOL no se miran (M5)
+                    for (Expression operando : derecha.getElementos()) {
+                        Errado error = null;
+                        String tipoOperando = null;
+                        boolean conTipo = true;
+                        if (operando instanceof Identifier) {
+                            String nombre = ((Identifier) operando).getValue();
+                            if (!env.EsVariable(nombre)) {
+                                // 303 por aparición (M13); no participa en tipos
+                                error = NewError(operando.getLine(), 303, "Identificador no encontrado",
+                                        nombre, UnknownIdentifier, new String[]{nombre});
+                                conTipo = false;
+                            } else {
+                                tipoOperando = env.TipoDe(nombre);
+                                // Variable sin tipo conocido: se salta (DM2)
+                                conTipo = tipoOperando != null;
+                            }
+                        } else if (operando instanceof Integral) {
+                            tipoOperando = "INT";
+                        } else if (operando instanceof Decimal) {
+                            tipoOperando = "REAL";
+                        } else if (operando instanceof StringLiteral) {
+                            tipoOperando = "CHAR";
+                        }
+                        // Booleano queda sin tipo: incompatible con todo
+                        if (error == null && conTipo && tipoIzq != null) {
+                            boolean izqNumerica = "INT".equals(tipoIzq) || "REAL".equals(tipoIzq);
+                            boolean opNumerico = "INT".equals(tipoOperando) || "REAL".equals(tipoOperando);
+                            boolean compatible = izqNumerica ? opNumerico
+                                    : ("CHAR".equals(tipoIzq) && "CHAR".equals(tipoOperando));
+                            String lexema = LexemaOperando(operando);
+                            if (!compatible) {
+                                // 301 sin sufijo de tipos (DM6), uno por operando (M7)
+                                error = NewError(operando.getLine(), 301, "Discrepancia de tipos", lexema,
+                                        TypeMismatchError, new String[]{lexema});
+                            } else if ("CHAR".equals(tipoIzq) && operando instanceof StringLiteral
+                                    && ((StringLiteral) operando).getValue().length() != 1) {
+                                // 309: texto de longitud distinta de 1 hacia CHAR (M8); nunca junto a un 301
+                                error = NewError(operando.getLine(), 309, "Un CHAR es un solo carácter", lexema,
+                                        CharLargo, new String[]{lexema});
+                            }
+                        }
+                        if (error != null && primeroAsignacion == null) {
+                            primeroAsignacion = error;
+                        }
+                    }
+                }
+                return primeroAsignacion;
             case "Identifier":
                 Identifier identifier = (Identifier) node;
                 return EvaluateIdentifier(identifier, env);
@@ -213,17 +290,21 @@ public class Evaluator {
                 return new Cadena(str.getValue());
             case "Etiqueta":
                 Etiqueta etiqueta = (Etiqueta) node;
-                if (env.get(etiqueta.getValue()) == null) {
-                    env.put(etiqueta.getValue(), "");
-                } else {
-                    // 304 con la línea de la etiqueta
+                // Área 4: espacio de etiquetas propio; una variable homónima no interviene (M11)
+                Object primera = env.PrimeraEtiqueta(etiqueta.getValue());
+                if (primera == null) {
+                    // Sin pasada previa (REPL, unitarias): se registra aquí, como antes
+                    env.RegistrarEtiqueta(etiqueta.getValue(), etiqueta);
+                } else if (primera != etiqueta) {
+                    // 304 bajo la segunda aparición (DM3, M10)
                     return NewError(etiqueta.getLine(), 304, "Identificador ya declarado", etiqueta.getValue(),
                             RepeatedIdentificator, new String[]{etiqueta.getValue()});
                 }
                 break;
             case "Goto":
                 Goto gouto = (Goto) node;
-                if(env.get(gouto.getIdentificador().TokenLiteral()) == null) {
+                // Área 4: solo vale una etiqueta del programa (también posterior); una variable da 303 (M9)
+                if(!env.EsEtiqueta(gouto.getIdentificador().TokenLiteral())) {
                     // 303 con la línea del identificador del GOTO
                     return NewError(gouto.getIdentificador().getLine(), 303, "Identificador no encontrado",
                             gouto.getIdentificador().TokenLiteral(), UnknownIdentifier,
@@ -236,7 +317,8 @@ public class Evaluator {
                 Errado primeroPrint = null;
                 if(print.getIdentificadores().size() >0){
                     for(Expression identificador : print.getIdentificadores()){
-                        if(env.get(identificador.TokenLiteral()) == null){
+                        // Área 4: solo una variable vale; una etiqueta o una marca da 303 (2.11)
+                        if(!env.EsVariable(identificador.TokenLiteral())){
                             Errado noDefinido = NewError(identificador.getLine(), 303, "Identificador no encontrado",
                                     identificador.TokenLiteral(), UnknownIdentifier,
                                     new String[]{identificador.TokenLiteral()});
@@ -249,6 +331,68 @@ public class Evaluator {
                 if (primeroPrint != null) {
                     return primeroPrint;
                 }
+                break;
+            case "Read":
+                Read leer = (Read) node;
+                // Área 4 (2.10): read de algo que no es variable da 303; cualquier tipo vale; read ( ) sin mensaje
+                Expression leida = leer.getIdentificador();
+                if (leida != null && !env.EsVariable(leida.TokenLiteral())) {
+                    return NewError(leida.getLine(), 303, "Identificador no encontrado",
+                            leida.TokenLiteral(), UnknownIdentifier,
+                            new String[]{leida.TokenLiteral()});
+                }
+                break;
+            case "For":
+                // Área 4 (2.7–2.9, M12): cabecera 303/310/311 y cuerpo evaluado; devuelve el primer Errado
+                For ciclo = (For) node;
+                Errado primeroFor = null;
+                Expression variableCiclo = ciclo.getCiclo();
+                // Campo null (cabecera con 204): se salta sin mensaje (3.10)
+                if (variableCiclo != null) {
+                    String nombreCiclo = variableCiclo.TokenLiteral();
+                    if (!env.EsVariable(nombreCiclo)) {
+                        // No es variable (inexistente o etiqueta, DM8): 303
+                        primeroFor = NewError(variableCiclo.getLine(), 303, "Identificador no encontrado",
+                                nombreCiclo, UnknownIdentifier, new String[]{nombreCiclo});
+                    } else {
+                        String tipoCiclo = env.TipoDe(nombreCiclo);
+                        if ("REAL".equals(tipoCiclo) || "CHAR".equals(tipoCiclo)) {
+                            // Variable de ciclo REAL o CHAR: 310
+                            primeroFor = NewError(variableCiclo.getLine(), 310,
+                                    "La variable de ciclo del FOR no es INT", nombreCiclo,
+                                    CicloNoEntero, new String[]{nombreCiclo});
+                        }
+                    }
+                }
+                // FROM, BY y TO: un mensaje por límite, sin colapsar (M12)
+                for (Expression limite : new Expression[]{ciclo.getMinima(), ciclo.getIncremento(), ciclo.getMaxima()}) {
+                    // Integral siempre vale; null (204 o 102) se salta sin mensaje
+                    if (!(limite instanceof Identifier)) {
+                        continue;
+                    }
+                    String nombreLimite = ((Identifier) limite).getValue();
+                    Errado errorLimite = null;
+                    if (!env.EsVariable(nombreLimite)) {
+                        errorLimite = NewError(limite.getLine(), 303, "Identificador no encontrado",
+                                nombreLimite, UnknownIdentifier, new String[]{nombreLimite});
+                    } else {
+                        String tipoLimite = env.TipoDe(nombreLimite);
+                        if ("REAL".equals(tipoLimite) || "CHAR".equals(tipoLimite)) {
+                            errorLimite = NewError(limite.getLine(), 311,
+                                    "Valor de FROM/BY/TO no es constante entera ni variable INT", nombreLimite,
+                                    RangoNoEntero, new String[]{nombreLimite});
+                        }
+                    }
+                    if (errorLimite != null && primeroFor == null) {
+                        primeroFor = errorLimite;
+                    }
+                }
+                // Cuerpo con las mismas reglas; sus etiquetas ya están en la pasada previa (x06, M10)
+                Objeto cuerpo = Evaluate(ciclo.getComands(), env);
+                if (cuerpo instanceof Errado && primeroFor == null) {
+                    primeroFor = (Errado) cuerpo;
+                }
+                return primeroFor;
         }
         return null;
     }
@@ -263,6 +407,18 @@ public class Evaluator {
         } else {
             return FALSE;
         }
+    }
+
+    // Área 4: lexema de un operando de asignación; "" → STRING (DM4), constantes con su literal sin "-" (DM5)
+    private static String LexemaOperando(Expression operando) {
+        if (operando instanceof Identifier) {
+            return ((Identifier) operando).getValue();
+        }
+        if (operando instanceof StringLiteral) {
+            String texto = ((StringLiteral) operando).getValue();
+            return (texto == null || texto.isEmpty()) ? "STRING" : texto;
+        }
+        return operando.TokenLiteral();
     }
 
     private static Objeto EvaluateIdentifier(Identifier identifier, Environment env) {
@@ -394,6 +550,41 @@ public class Evaluator {
         return primerError != null ? primerError : result;
     }
 
+    // Área 4: pasada previa sin mensajes; registra cada etiqueta (también en ramas y cuerpos) en orden del fuente
+    private static void RegistrarEtiquetas(ArrayList<Statement> statements, Environment env) {
+        if (statements == null) {
+            return;
+        }
+        for (Statement statement : statements) {
+            // Un Block dentro de la lista también se recorre
+            if (statement instanceof Block) {
+                RegistrarEtiquetas((Block) statement, env);
+                continue;
+            }
+            if (!(statement instanceof ExpressionStatement)) {
+                continue;
+            }
+            Expression expresion = ((ExpressionStatement) statement).getExpression();
+            if (expresion instanceof Etiqueta) {
+                Etiqueta etiqueta = (Etiqueta) expresion;
+                env.RegistrarEtiqueta(etiqueta.getValue(), etiqueta);
+            } else if (expresion instanceof If) {
+                If si = (If) expresion;
+                RegistrarEtiquetas(si.getConsequence(), env);
+                RegistrarEtiquetas(si.getAlternative(), env);
+            } else if (expresion instanceof For) {
+                RegistrarEtiquetas(((For) expresion).getComands(), env);
+            }
+        }
+    }
+
+    // Área 4: recursión sobre un bloque (rama de IF o cuerpo de FOR); tolera null
+    private static void RegistrarEtiquetas(Block bloque, Environment env) {
+        if (bloque != null) {
+            RegistrarEtiquetas(bloque.getStatements(), env);
+        }
+    }
+
     private static Objeto EvaluateStatement(Statement statement, Environment env) {
         switch (statement.TokenLiteral()) {
             case "BEGIN":
@@ -426,16 +617,7 @@ public class Evaluator {
         return result;
     }
 
-    private static boolean IsTruthy(Objeto obj) {
-        if (obj == NULL) {
-            return false;
-        } else if (obj == TRUE) {
-            return true;
-        } else if (obj == FALSE) {
-            return false;
-        }
-        return true;
-    }
+    // M14: se borró IsTruthy (sin uso desde S3)
 
     // Arma el mismo Errado que antes (mismo Inspect()) y registra su Mensaje; único sitio de registro
     private static Errado NewError(int linea, int codigo, String texto, String lexema, String message, String[] args) {

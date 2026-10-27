@@ -1166,25 +1166,64 @@ public class PruebasLexico {
             byte[] erroresObt = (byte[]) res[1];
             if (esperado == null) dif.add("la captura no tiene captura.txt");
             if (esperado != null && obtenido != null) {
-                if (c.comentarios) {
-                    // Con comentarios bien cerrados: solo mensajes y validez
-                    List<String> a = SoloMensajesYValidez(esperado), b = SoloMensajesYValidez(obtenido);
-                    if (!a.equals(b)) dif.add("mensajes/validez: " + PrimeraDiferencia(a, b));
-                } else {
-                    // Sin comentarios: tokens, GetMensajes, GetErrors, hasErrors y TestProyecto iguales
-                    List<String> a = Arrays.asList(esperado.split("\n", -1)), b = Arrays.asList(obtenido.split("\n", -1));
-                    if (!a.equals(b)) dif.add("captura: " + PrimeraDiferencia(a, b));
-                    // -errores.txt byte a byte (leído con ISO-8859-1 para el reporte, R6)
-                    if (!Arrays.equals(erroresEsp, erroresObt)) {
-                        String ea = erroresEsp == null ? "(ausente)" : new String(erroresEsp, StandardCharsets.ISO_8859_1);
-                        String eb = erroresObt == null ? "(ausente)" : new String(erroresObt, StandardCharsets.ISO_8859_1);
-                        dif.add("-errores.txt: " + PrimeraDiferencia(Arrays.asList(ea.split("\n", -1)), Arrays.asList(eb.split("\n", -1))));
-                    }
-                }
+                // área 4 (DM10, M4): solo tokens (si el caso los tiene), los 1xx en orden y las excepciones del
+                // parser; ya no se comparan ERR|, HAS|, TP|, los 2xx/3xx/advertencias ni el -errores.txt
+                List<String> a = Excepciones101(id, SoloLexico(esperado), dif), b = SoloLexico(obtenido);
+                if (!a.equals(b)) dif.add("tokens/1xx: " + PrimeraDiferencia(a, b));
             }
             Registrar("preservación " + id + (c.comentarios ? " (mensajes y validez)" : ""), "P3", true, dif);
         }
         ImprimirResumen("preservacion");
+    }
+
+    // área 4: excepciones de la captura desactualizada (R9, sin regenerarla). La captura, previa al área 2,
+    // registraba el 101 con el contador de línea del parser y lo perdía en ParseAlgol tras RETURN (n10);
+    // RegistrarIlegales (área 3) lo da en la línea física real. Solo el 101 de estos cuatro casos:
+    // {caso, lexema, línea capturada (0 = la captura no lo tiene), línea real}
+    private static final String[][] EXCEPCIONES_101 = {
+        {"n10", "'", "0", "5"},
+        {"n18", "%", "5", "4"},
+        {"n21", "'", "8", "6"},
+        {"n33", "'", "9", "8"},
+    };
+
+    // área 4: aplica EXCEPCIONES_101 a la lista esperada; si la captura no tiene el 101 indicado, falla
+    private static List<String> Excepciones101(String id, List<String> esperado, List<String> dif) {
+        List<String> r = new ArrayList<>(esperado);
+        for (String[] e : EXCEPCIONES_101) {
+            if (!e[0].equals(id)) continue;
+            String nuevo = "MSG|" + e[3] + "|LEXICO|101|" + e[1] + "|ERROR 101: Carácter ilegal [" + e[1] + "].";
+            if (!e[2].equals("0")) {
+                String viejo = "MSG|" + e[2] + "|LEXICO|101|" + e[1] + "|ERROR 101: Carácter ilegal [" + e[1] + "].";
+                if (!r.remove(viejo)) { dif.add("excepción 101 de " + id + ": la captura no tiene " + viejo); continue; }
+            } else if (r.contains(nuevo)) {
+                dif.add("excepción 101 de " + id + ": la captura ya tiene " + nuevo); continue;
+            }
+            // se inserta antes del primer MSG con línea mayor (los 1xx van en orden de línea)
+            int pos = r.size();
+            for (int i = 0; i < r.size(); i++) {
+                String l = r.get(i);
+                String lin = l.startsWith("MSG|") ? l.split("\\|", 3)[1] : "";
+                if (lin.matches("\\d+") && Integer.parseInt(lin) > Integer.parseInt(e[3])) { pos = i; break; }
+            }
+            r.add(pos, nuevo);
+        }
+        return r;
+    }
+
+    // área 4 (DM10): líneas TOK|/TOKDIF|, MSG| con código 100-199 (en orden) y PARSER|EXC de una captura
+    private static List<String> SoloLexico(String captura) {
+        List<String> r = new ArrayList<>();
+        for (String l : captura.split("\n")) {
+            if (l.startsWith("TOK|") || l.startsWith("TOKDIF|") || l.startsWith("PARSER|EXC")) {
+                r.add(l);
+            } else if (l.startsWith("MSG|")) {
+                // MSG|línea|categoría|código|lexema|texto
+                String[] c = l.split("\\|", 6);
+                if (c.length >= 4 && c[3].matches("1\\d\\d")) r.add(l);
+            }
+        }
+        return r;
     }
 
     // Líneas de mensajes (GetMensajes), excepciones del parser, hasErrors y TestProyecto

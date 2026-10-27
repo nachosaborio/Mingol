@@ -4,3 +4,5 @@
 # Salida de Ant/NetBeans: de dist/ solo se versiona Mingol.jar
 /dist/*
 !/dist/Mingol.jar
+# Specs y steering de Kiro: solo locales, no se versionan
+/.kiro/

@@ -25,8 +25,8 @@ $logs = $Logs
 New-Item -ItemType Directory -Force $arnes, $logs | Out-Null
 
 # Compila los arneses contra build\classes
-# Área 2: se suma PruebasLexico; área 3: se suma PruebasSintaxis
-$fuentes = "RunTestProyecto", "PruebasArchivoErrores", "PruebasCriticos", "PruebasLexico", "PruebasSintaxis" |
+# Área 2: se suma PruebasLexico; área 3: se suma PruebasSintaxis; área 4: se suma PruebasSemantica
+$fuentes = "RunTestProyecto", "PruebasArchivoErrores", "PruebasCriticos", "PruebasLexico", "PruebasSintaxis", "PruebasSemantica" |
     ForEach-Object { Join-Path $Repo "tests\arneses\$_.java" }
 & javac -encoding UTF-8 -nowarn -cp $clases -d $arnes @fuentes
 if ($LASTEXITCODE -ne 0) { throw "No compilaron los arneses." }
@@ -77,6 +77,8 @@ $criticos = Join-Path $env:TEMP "mingol-criticos"
 $lexico = Join-Path $env:TEMP "mingol-lexico"
 # Carpeta de trabajo de PruebasSintaxis (área 3)
 $sintaxis = Join-Path $env:TEMP "mingol-sintaxis-arnes"
+# Carpeta de trabajo de PruebasSemantica (área 4)
+$semantica = Join-Path $env:TEMP "mingol-semantica-arnes"
 
 # Área 1 (archivo de errores) y regresión de críticos. Sin 'preservacion': necesita una captura del código viejo
 foreach ($modo in "ejemplos", "unitarias", "propiedades", "main") {
@@ -93,6 +95,10 @@ foreach ($modo in "unitarias", "propiedades") {
 foreach ($modo in "unitarias", "propiedades") {
     $resultados += Correr "PruebasSintaxis" $modo $sintaxis $false
 }
+# Área 4 (semántica). Sin 'exploracion' ni 'capturar'/'preservacion': dependen del código sin arreglar y de su captura local
+foreach ($modo in "unitarias", "propiedades") {
+    $resultados += Correr "PruebasSemantica" $modo $semantica $false
+}
 # Segunda pasada con aserciones (NetBeans ejecuta con -ea)
 if (-not $SinEa) {
     foreach ($modo in "ejemplos", "unitarias") {
@@ -103,6 +109,8 @@ if (-not $SinEa) {
     $resultados += Correr "PruebasLexico" "unitarias" $lexico $true
     # Área 3 con aserciones
     $resultados += Correr "PruebasSintaxis" "unitarias" $sintaxis $true
+    # Área 4 con aserciones
+    $resultados += Correr "PruebasSemantica" "unitarias" $semantica $true
 }
 
 $fallidos = @($resultados | Where-Object { $_.Codigo -ne 0 })

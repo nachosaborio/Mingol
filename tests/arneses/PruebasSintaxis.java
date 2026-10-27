@@ -170,6 +170,8 @@ public class PruebasSintaxis {
     private static String E216(String cierre) { return Err(216, "Bloque sin comandos antes de " + cierre, cierre); }
     private static String E217() { return Err(217, "Falta la sección de comandos", "END"); }
     private static String E303(String lex) { return Err(303, "Identificador no encontrado", lex); }
+    // área 4: 301 de asignación, sin sufijo de tipos (DM6)
+    private static String E301(String lex) { return Err(301, "Discrepancia de tipos", lex); }
     private static String E305() { return Err(305, "No puede haber más de una sentencia BEGIN por archivo", "BEGIN"); }
     private static String E306() { return Err(306, "No puede haber más de una sentencia END por archivo", "END"); }
     private static String E307() { return Err(307, "No se encontró una sentencia BEGIN", "BEGIN"); }
@@ -315,9 +317,11 @@ public class PruebasSintaxis {
                 .m(3, E212()).m(4, E212()).m(5, E204("LPAREN", "IDENT", "a")));
         c.add(S("8", "s22", "BEGIN", "print ( \"hola\" );", "print \"hola\";", "print ( newline )", "END")
                 .m(3, E204("LPAREN", "STRING", "hola")));
-        c.add(S("otros", "s23", "BEGIN", "GOTO fin;", "fin:", "print ( newline )", "END").m(2, E303("fin")));
+        // área 4: GOTO hacia adelante válido (sin el 303 [fin])
+        c.add(S("otros", "s23", "BEGIN", "GOTO fin;", "fin:", "print ( newline )", "END"));
+        // área 4: en 3 solo el 204 (el GOTO hacia adelante ya no da 303)
         c.add(S("8", "s24", "BEGIN", "GOTO;", "GOTO fin extra;", "fin:", "print ( newline )", "END")
-                .m(2, E204("IDENT", "SEMICOLON", ";")).m(3, E204("SEMICOLON", "IDENT", "extra"), E303("fin")));
+                .m(2, E204("IDENT", "SEMICOLON", ";")).m(3, E204("SEMICOLON", "IDENT", "extra")));
         c.add(S("1", "s25", "BEGIN", "INT b := -32768;", "print ( newline )", "END").m(2, E210()));
         c.add(S("otros", "s26", "BEGIN;", "print ( newline )", "END;").m(1, E202("BEGIN", ";")).m(3, E202("END", ";")));
         c.add(S("6", "s27", "BEGIN", "INT a;", "IF ( a > 0 ) THEN;", "print ( newline )", "ELSE;", "print ( newline )", "FI", "END")
@@ -352,14 +356,17 @@ public class PruebasSintaxis {
         c.add(S("6", "s47", "BEGIN", "print ( newline ); print ( newline );", "print ( newline )", "END")
                 .m(2, E202("SEMICOLON", "print")));
         c.add(S("otros", "s48", "", "# comentario #", "BEGIN", "", "CO otro CO", "print ( newline )", "", "END", "", "# fin #"));
-        c.add(S("2", "s49", "BEGIN", "FOR i FROM 1", "BY 1 TO 3", "DO", "print ( newline )", "OD", "END"));
+        // área 4: FOR i sin declarar da 303 [i] bajo la cabecera
+        c.add(S("2", "s49", "BEGIN", "FOR i FROM 1", "BY 1 TO 3", "DO", "print ( newline )", "OD", "END").m(2, E303("i")));
         c.add(S("1", "s50", "BEGIN", "REAL b,", "c;", "print ( newline )", "END"));
         c.add(S("ctl", "s51", "BEGIN", "IF ( 1 > 0 ) THEN", "SKIP", "FI", "END").control());
         c.add(S("3", "s52", "BEGIN", "SKIP", "print ( newline )", "END").m(2, E204Eol()));
         c.add(S("otros", "s53", "BEGIN", "LONG x;", "print ( newline )", "END").m(2, Adv("LONG")));
         c.add(S("otros", "s54", "BEGIN", "IF ( TRUE ) THEN", "print ( newline )", "FI", "END"));
-        c.add(S("3", "s55", "BEGIN", "read ( a )", "END"));
-        c.add(S("otros", "s56", "BEGIN", "GOTO fin", "fin:", "print ( newline )", "END").m(2, E204Eol(), E303("fin")));
+        // área 4: read de una variable no declarada da 303 [a]
+        c.add(S("3", "s55", "BEGIN", "read ( a )", "END").m(2, E303("a")));
+        // área 4: solo el 204 (el GOTO hacia adelante ya no da 303)
+        c.add(S("otros", "s56", "BEGIN", "GOTO fin", "fin:", "print ( newline )", "END").m(2, E204Eol()));
         c.add(S("6", "s57", "BEGIN", "fin: ;", "print ( newline )", "END").m(2, E202("ETIQUETA", ";")));
         c.add(S("3", "s58", "BEGIN", "print ( \"hola\" )", "END"));
         c.add(S("3", "s59", "BEGIN", "print ( (a, b) )", "END").m(2, E303("a"), E303("b")));
@@ -370,11 +377,14 @@ public class PruebasSintaxis {
         c.add(S("3", "s63", "BEGIN", "IF ( 1 > 0 ) THEN", "print ( newline )", "FI", "END"));
         c.add(S("3", "s64", "BEGIN", "print ( newline );", "print ( newline )", "END"));
         c.add(S("4", "s65", "BEGIN", "for i;", "print ( newline )", "END").m(2, E205("for")));
-        c.add(S("ctl", "s66", "BEGIN", "IF ( 1 > 0 ) THEN", "GOTO fin", "FI;", "fin:", "SKIP", "END").m(3, E303("fin")).control());
+        // área 4: GOTO hacia adelante desde la rama, válido; sigue siendo control de sintaxis
+        c.add(S("ctl", "s66", "BEGIN", "IF ( 1 > 0 ) THEN", "GOTO fin", "FI;", "fin:", "SKIP", "END").control());
         c.add(S("5", "s67", "BEGIN", "END").m(2, E217()));
         // DS8: REQ-LINE-04 al pie de la letra: 206 [;] bajo la declaración y 217 bajo el END
         c.add(S("1", "s68", "BEGIN", "INT a;", "END").m(2, E206("END")).m(3, E217()));
-        c.add(S("2", "s69", "BEGIN", "x := ( x *", "Factor2 );", "print ( newline )", "END").m(3, E103("Factor2")));
+        // área 4: x sin declarar da 303 por la izquierda y por la derecha; Factor2 da 103 y 303
+        c.add(S("2", "s69", "BEGIN", "x := ( x *", "Factor2 );", "print ( newline )", "END")
+                .m(2, E303("x"), E303("x")).m(3, E103("Factor2"), E303("Factor2")));
         c.add(S("ctl", "s70", "BEGIN", "print ( newline );", "PRAGMAT a PRAGMAT", "END").m(3, Adv("PRAGMAT")).control());
         c.add(S("9", "s71", "BEGIN", "IF ( 1 > 0 ) THEN", "FI", "END").m(3, E216("FI")));
         // DS9: REQ-LINE-04 al pie de la letra: 206 [;] bajo el print y 213 bajo el OD suelto
@@ -565,6 +575,15 @@ public class PruebasSintaxis {
         final List<String> lineas = new ArrayList<>();
         final List<String> parser = new ArrayList<>();     // "línea|mensaje" del lexer y del parser
         final List<String> evaluador = new ArrayList<>();  // "línea|mensaje" del evaluador (0 = 307/308)
+        // área 4: 303 de GOTO pendientes {mensaje, etiqueta}; se quitan al final si la etiqueta se define después
+        final List<String[]> gotosPendientes = new ArrayList<>();
+
+        // área 4: 303 de un GOTO que depende de que la etiqueta no se defina en ningún punto del programa
+        void GotoPendiente(int n, String e) {
+            String m = n + "|" + E303(e);
+            evaluador.add(m);
+            gotosPendientes.add(new String[]{m, e});
+        }
 
         // Agrega una línea física; el lexer da 113 a toda línea de más de 80 columnas (L3)
         int Linea(String texto) {
@@ -671,6 +690,8 @@ public class PruebasSintaxis {
         }
         if (modoBegin == 0) p.E(0, E307());
         if (modoEnd == 0) p.E(0, E308());
+        // área 4: un GOTO a una etiqueta definida más adelante ya no da 303 (pasada previa de etiquetas)
+        for (String[] g : p.gotosPendientes) if (definidas.contains(g[1])) p.evaluador.remove(g[0]);
         return p;
     }
 
@@ -747,8 +768,9 @@ public class PruebasSintaxis {
             case READ: {
                 String v = IdComun(r);
                 n = p.Linea("read ( " + v + " )" + fin + relleno);
-                // read no se evalúa: solo los 1xx
                 Lexicos(p, n, v);
+                // área 4: read de un identificador nunca declarado da 303 (también sin ";", DS7)
+                p.E(n, E303(v));
                 break;
             }
             case GOTO: {
@@ -766,8 +788,8 @@ public class PruebasSintaxis {
                 String e = r.nextInt(8) == 0 ? "Fin" : ETIQUETAS[r.nextInt(ETIQUETAS.length)];
                 n = p.Linea("GOTO " + e + (antesDeEnd ? "" : ";") + relleno);
                 Lexicos(p, n, e);
-                // 303 si la etiqueta no se definió antes (también hacia adelante, área 4)
-                if (!definidas.contains(e)) p.E(n, E303(e));
+                // área 4: 303 solo si la etiqueta no se define en ningún punto (se resuelve al final)
+                if (!definidas.contains(e)) p.GotoPendiente(n, e);
                 return;
             }
             case ETIQUETA: {
@@ -836,7 +858,8 @@ public class PruebasSintaxis {
                 if (conGoto && verdadera && !genLimpio) {
                     String e = ETIQUETAS[r.nextInt(ETIQUETAS.length)];
                     int m = p.Linea("GOTO " + e);
-                    if (!definidas.contains(e)) p.E(m, E303(e));
+                    // área 4: 303 solo si la etiqueta no se define en ningún punto (se resuelve al final)
+                    if (!definidas.contains(e)) p.GotoPendiente(m, e);
                 } else if (conGoto && !def.isEmpty()) {
                     p.Linea("GOTO " + def.get(r.nextInt(def.size())));
                 } else {
@@ -1142,21 +1165,36 @@ public class PruebasSintaxis {
             byte[] erroresObt = (byte[]) res[1];
             if (esperado == null) dif.add("la captura no tiene captura.txt");
             if (esperado != null && obtenido != null) {
-                // GetMensajes, GetErrors, hasErrors, evaluador y TestProyecto iguales
-                List<String> a = Arrays.asList(esperado.split("\n", -1)), b = Arrays.asList(obtenido.split("\n", -1));
+                // área 4 (DM9): contra la captura solo GetMensajes, GetErrors y hasErrors; los 3xx, EVAL y TP
+                // los comprueba el oráculo actualizado
+                List<String> a = SinSemantica(esperado), b = SinSemantica(obtenido);
                 if (!a.equals(b)) dif.add("captura: " + PrimeraDiferencia(String.join("\n", a), String.join("\n", b)));
             }
-            // -errores.txt byte a byte (leído con ISO-8859-1 para el reporte, R6)
-            if (!Arrays.equals(erroresEsp, erroresObt)) {
-                String ea = erroresEsp == null ? "(ausente)" : new String(erroresEsp, StandardCharsets.ISO_8859_1);
-                String eb = erroresObt == null ? "(ausente)" : new String(erroresObt, StandardCharsets.ISO_8859_1);
-                dif.add("-errores.txt: " + PrimeraDiferencia(ea, eb));
-            }
+            // área 4 (DM9): -errores.txt sin las líneas de 3xx en los dos lados (leído con ISO-8859-1, R6)
+            String ea = erroresEsp == null ? "(ausente)" : Sin3xx(new String(erroresEsp, StandardCharsets.ISO_8859_1));
+            String eb = erroresObt == null ? "(ausente)" : Sin3xx(new String(erroresObt, StandardCharsets.ISO_8859_1));
+            if (!ea.equals(eb)) dif.add("-errores.txt: " + PrimeraDiferencia(ea, eb));
             // El oráculo (el mismo que usará CI) también debe seguir valiendo
             ComprobarReferencia(c, obtenido, erroresObt, dif);
             Registrar("preservación " + id, "P2", true, dif);
         }
         ResumenSimple("preservacion");
+    }
+
+    // área 4 (DM9): líneas MSG|, ERR| y HAS| de una captura, en orden
+    private static List<String> SinSemantica(String captura) {
+        List<String> l = new ArrayList<>();
+        for (String s : captura.split("\n", -1)) {
+            if (s.startsWith("MSG|") || s.startsWith("ERR|") || s.startsWith("HAS|")) l.add(s);
+        }
+        return l;
+    }
+
+    // área 4 (DM9): -errores.txt sin las líneas que empiezan con 8 espacios + "ERROR 3"
+    private static String Sin3xx(String archivo) {
+        StringBuilder sb = new StringBuilder();
+        for (String s : archivo.split("(?<=\n)")) if (!s.startsWith("        ERROR 3")) sb.append(s);
+        return sb.toString();
     }
 
     // Hijo de captura: GetMensajes, GetErrors, hasErrors, mensajes del evaluador y TestProyecto por
@@ -1526,7 +1564,9 @@ public class PruebasSintaxis {
         c.add(U("2.21", "u2_21b", "BEGIN", "IF ( 1 > 0 ) THEN", "SKIP").m(3, E204("FI", "EOF", "EOF")).fin(E308())
                 .cad("\tLinea 4 Error 204: Se esperaba un token de tipo FI pero se obtuvo un EOF"));
         // 2.22 posición de comando
-        c.add(U("2.22", "u2_22a", "BEGIN", "x := ( x *", "Factor2 );", "print ( newline )", "END").m(3, E103("Factor2")));
+        // área 4: igual que s69 (303 por x en 2; 103 y 303 por Factor2 en 3)
+        c.add(U("2.22", "u2_22a", "BEGIN", "x := ( x *", "Factor2 );", "print ( newline )", "END")
+                .m(2, E303("x"), E303("x")).m(3, E103("Factor2"), E303("Factor2")));
         c.add(U("2.22", "u2_22b", "BEGIN", "RREAL x;", "READ ( x );", "print ( newline )", "END")
                 .m(2, E205("RREAL")).m(3, E205("READ")));
         // S9 con Print: el diseño solo fija que no hay 103 (y el 202 de S9); el resto se informa
@@ -1547,7 +1587,9 @@ public class PruebasSintaxis {
                 "SKIP", "FI", "END")
                 .ast("Asignacion", "a:Integral:1,Integral:2"));
         c.add(U("bordes", "ub_fi_end", "BEGIN", "IF ( 1 > 0 ) THEN", "SKIP", "FI;", "END").m(4, E206("END")));
-        c.add(U("bordes", "ub_od_cmd", "BEGIN", "FOR n FROM 1 BY 1 TO 2 DO", "SKIP", "OD", "SKIP", "END").m(4, E204Eol()));
+        // área 4: FOR n sin declarar da 303 [n] en 2
+        c.add(U("bordes", "ub_od_cmd", "BEGIN", "FOR n FROM 1 BY 1 TO 2 DO", "SKIP", "OD", "SKIP", "END")
+                .m(2, E303("n")).m(4, E204Eol()));
 
         // L4 dentro de secuencias y en FOR
         c.add(U("L4", "ul4", "BEGIN", "INT a, b, i;", "a := 32768;", "a := -32768;", "a := ( -32768 );", "a := b-32768;",
@@ -1564,14 +1606,17 @@ public class PruebasSintaxis {
                 .ast("cuenta.Asignacion", "1").ast("cuenta.Secuencia", "2").ast("cuenta.If", "1").ast("cuenta.For", "1")
                 .ast("Asignacion", "a:Identifier:b,Booleano:TRUE,Integral:1,Decimal:2.5")
                 .ast("Secuencia.algol", "max").ast("Secuencia.algol", "OR").ast("Secuencia.algol", "ABS")
-                .ast("If.consecuencia", "1").ast("If.alternativa", "2").ast("For.comandos", "3"));
+                .ast("If.consecuencia", "1").ast("If.alternativa", "2").ast("For.comandos", "3")
+                // área 4: TRUE hacia a (INT) da 301
+                .m(4, E301("TRUE")));
 
         // Evaluador: 304, 303 de la condición y de la rama ELSE, sin 301/302 con REAL, asignación muda (DS4)
         c.add(U("evaluador", "uev1", "BEGIN", "INT a;", "INT a;", "REAL r, r;", "SKIP", "END")
                 .m(3, E304("a")).m(4, E304("r")));
         c.add(U("evaluador", "uev2", "BEGIN", "REAL r;", "IF ( r > 1.5 OR zz = 2 ) THEN", "SKIP", "ELSE", "GOTO nada",
                 "FI;", "a := zz + 1.5 * 3", "END")
-                .m(3, E303("zz")).m(6, E303("nada")));
+                // área 4: la asignación ya no es muda: 303 [a] (izquierda) y 303 [zz], en ese orden
+                .m(3, E303("zz")).m(6, E303("nada")).m(8, E303("a"), E303("zz")));
 
         // Obligatorios (tarea 1), con su -errores.txt de la tabla Examples
         for (Caso o : Casos()) if (OBLIGATORIOS.contains(o.id)) c.add(o);
@@ -1694,8 +1739,17 @@ public class PruebasSintaxis {
         boolean huboComando;
         final List<String> declaradas = new ArrayList<>();
         final List<String> etiquetas = new ArrayList<>();
+        // área 4 (DM11): tipo declarado de cada variable
+        final Map<String, String> tipoDe = new HashMap<>();
 
         void Cuenta(String clase) { cuenta.merge(clase, 1, Integer::sum); }
+
+        // área 4 (DM11): variables declaradas de alguno de los tipos dados, en orden de declaración
+        List<String> DeTipo(String... tipos) {
+            List<String> v = new ArrayList<>();
+            for (String d : declaradas) if (Arrays.asList(tipos).contains(tipoDe.get(d))) v.add(d);
+            return v;
+        }
 
         List<String> Lineas() {
             List<String> r = new ArrayList<>();
@@ -1766,8 +1820,15 @@ public class PruebasSintaxis {
         return g.declaradas.isEmpty() ? sino : g.declaradas.get(g.r.nextInt(g.declaradas.size()));
     }
 
-    // Término de una expresión; anidado = admite un paréntesis (solo uno por expresión)
-    private static void Termino(ProgV g, List<String> p, boolean[] anidable) {
+    // área 4 (DM11): variable INT/REAL o, si no hay, la constante dada (términos de una asignación)
+    private static String VarNum(ProgV g, String sino) {
+        List<String> v = g.DeTipo("INT", "REAL");
+        return v.isEmpty() ? sino : v.get(g.r.nextInt(v.size()));
+    }
+
+    // Término de una expresión; anidado = admite un paréntesis (solo uno por expresión).
+    // área 4 (DM11): num = término de una asignación (solo variables INT/REAL o números, sin TRUE/FALSE)
+    private static void Termino(ProgV g, List<String> p, boolean[] anidable, boolean num) {
         int k = g.r.nextInt(9);
         switch (k) {
             case 3:
@@ -1778,39 +1839,44 @@ public class PruebasSintaxis {
                 p.add(g.r.nextInt(100) + "." + g.r.nextInt(10));
                 return;
             case 5:
-                p.add(g.r.nextBoolean() ? "TRUE" : "FALSE");
+                // área 4 (DM11): en una asignación, un número en lugar de TRUE/FALSE
+                if (num) p.add(String.valueOf(g.r.nextInt(1000)));
+                else p.add(g.r.nextBoolean() ? "TRUE" : "FALSE");
                 return;
             case 6:
-                p.addAll(Arrays.asList("max", "(", VarO(g, "7") + ",", "1", ")"));
+                p.addAll(Arrays.asList("max", "(", (num ? VarNum(g, "7") : VarO(g, "7")) + ",", "1", ")"));
                 return;
             case 7:
                 p.add("ABS");
-                p.add(VarO(g, "3"));
+                p.add(num ? VarNum(g, "3") : VarO(g, "3"));
                 return;
             case 8:
                 if (anidable[0]) {
                     anidable[0] = false;
                     p.add("(");
-                    p.add(VarO(g, "2"));
+                    p.add(num ? VarNum(g, "2") : VarO(g, "2"));
                     p.add(new String[]{"+", "-", "*", "/"}[g.r.nextInt(4)]);
                     p.add(String.valueOf(g.r.nextInt(100)));
                     p.add(")");
                     return;
                 }
-                p.add(VarO(g, "5"));
+                p.add(num ? VarNum(g, "5") : VarO(g, "5"));
                 return;
-            default:
-                p.add(VarO(g, String.valueOf(g.r.nextInt(50))));
+            default: {
+                String sino = String.valueOf(g.r.nextInt(50));
+                p.add(num ? VarNum(g, sino) : VarO(g, sino));
+            }
         }
     }
 
+    // área 4 (DM11): expresión de una asignación, con términos numéricos
     private static List<String> Expresion(ProgV g) {
         List<String> p = new ArrayList<>();
         boolean[] anidable = {true};
         int terminos = 1 + g.r.nextInt(3);
         for (int i = 0; i < terminos; i++) {
             if (i > 0) p.add(g.r.nextInt(8) == 0 ? "OR" : new String[]{"+", "-", "*", "/"}[g.r.nextInt(4)]);
-            Termino(g, p, anidable);
+            Termino(g, p, anidable, true);
         }
         return p;
     }
@@ -1822,9 +1888,10 @@ public class PruebasSintaxis {
         int comparaciones = g.r.nextInt(3) == 0 ? 2 : 1;
         for (int i = 0; i < comparaciones; i++) {
             if (i > 0) p.add("OR");
-            Termino(g, p, anidable);
+            // área 4: las condiciones no cambian (cualquier variable, TRUE/FALSE)
+            Termino(g, p, anidable, false);
             p.add(rel[g.r.nextInt(rel.length)]);
-            Termino(g, p, anidable);
+            Termino(g, p, anidable, false);
         }
         return p;
     }
@@ -1838,6 +1905,9 @@ public class PruebasSintaxis {
         Random r = g.r;
         // Sustituciones cuando falta lo que el comando necesita
         if ((tipo == KV.ASIG || tipo == KV.READ) && g.declaradas.isEmpty()) tipo = KV.PNL;
+        // área 4 (DM11): asignación solo a INT/REAL; FOR solo con una variable INT
+        if (tipo == KV.ASIG && g.DeTipo("INT", "REAL").isEmpty()) tipo = KV.PNL;
+        if (tipo == KV.FOR && g.DeTipo("INT").isEmpty()) tipo = KV.SKIP;
         if (tipo == KV.PLIST && g.declaradas.isEmpty()) tipo = KV.PTXT;
         if (tipo == KV.GOTO && g.etiquetas.isEmpty()) tipo = top ? KV.LABEL : KV.SKIP;
         if (tipo == KV.LABEL && g.etiquetas.size() == ETIQUETAS_V.length) tipo = KV.SKIP;
@@ -1845,7 +1915,8 @@ public class PruebasSintaxis {
         if (tipo != KV.ALGOL) g.huboComando = true;
         switch (tipo) {
             case ASIG: {
-                String v = VarO(g, "a");
+                // área 4 (DM11): izquierda INT/REAL
+                String v = VarNum(g, "a");
                 List<String> p = new ArrayList<>();
                 p.add(v + " :=");
                 p.addAll(Expresion(g));
@@ -1961,8 +2032,11 @@ public class PruebasSintaxis {
                 return;
             }
             case FOR: {
-                List<String> p = L("FOR", VarO(g, "n"), "FROM", VarO(g, "1"), "BY", String.valueOf(1 + r.nextInt(3)),
-                        "TO", r.nextBoolean() ? VarO(g, "9") : String.valueOf(1 + r.nextInt(9)), "DO");
+                // área 4 (DM11): variable de ciclo INT y límites constantes o variables INT
+                List<String> enteras = g.DeTipo("INT");
+                List<String> p = L("FOR", enteras.get(r.nextInt(enteras.size())), "FROM",
+                        r.nextBoolean() ? enteras.get(r.nextInt(enteras.size())) : "1", "BY", String.valueOf(1 + r.nextInt(3)),
+                        "TO", r.nextBoolean() ? enteras.get(r.nextInt(enteras.size())) : String.valueOf(1 + r.nextInt(9)), "DO");
                 EmitirPartes(g, p, "FORH", null, false, "DO", null);
                 int previo = g.bloque;
                 int bloqueFor = ++g.bloques;
@@ -2025,12 +2099,15 @@ public class PruebasSintaxis {
         for (List<String> d : decls) {
             idx++;
             List<String> p = new ArrayList<>();
+            // área 4 (DM11): el tipo se sortea una vez por declaración y se guarda por variable
+            String tipo = tiposDato[r.nextInt(3)];
             for (int k = 0; k < d.size(); k++) {
-                String parte = (k == 0 ? tiposDato[r.nextInt(3)] + " " : "") + d.get(k) + (k < d.size() - 1 ? "," : "");
+                String parte = (k == 0 ? tipo + " " : "") + d.get(k) + (k < d.size() - 1 ? "," : "");
                 p.add(parte);
             }
             EmitirPartes(g, p, "DECL", "decl", idx < total, null, null);
             g.declaradas.addAll(d);
+            for (String v : d) g.tipoDe.put(v, tipo);
             g.Cuenta("Declaracion");
             for (int k = 0; k < d.size(); k++) g.Cuenta("LetStatement");
             if (r.nextInt(4) == 0) Transp(g);

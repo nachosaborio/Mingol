@@ -20,9 +20,7 @@ public class Parser {
 
     public boolean hasErrors = false;
     public int line = 1;
-    private boolean isEnd = false;
-    private boolean isComment = false;
-    private boolean errorBegin = false;
+    // M1: se borraron los campos sin uso isEnd, isComment y errorBegin
     // Corrección BUG 1: se eliminó el campo 'linea' porque nunca se incrementaba
     // (todos los mensajes decían "Linea 1"). Ahora los mensajes usan 'line',
     // que AdvanceToken() incrementa al consumir cada EOL.
@@ -1054,16 +1052,7 @@ public class Parser {
         return decimal;
     }
 
-    // Igual que ExpectedTokenError, pero informa el token actual (el que ocupa el lugar del esperado)
-    private void ExpectedCurrentTokenError(MingolToken token) {
-        String error = "\tLinea "+ line +" Error 204: Se esperaba un token de tipo " + token
-                + " pero se obtuvo un " + currentToken.getTokenType();
-        errors.add(error);
-        // Mensaje 204 con el token actual como lexema (EOF al final del archivo, con línea n+1)
-        mensajes.add(Mensaje.Error(line, 204, "Se esperaba un token de tipo " + token
-                + " pero se obtuvo " + currentToken.getTokenType(), Lexema(currentToken)));
-        hasErrors = true;
-    }
+    // M2: se borró ExpectedCurrentTokenError (sin referencias)
 
     // Lexema para el corchete: nunca un salto de línea ni vacío
     private String Lexema(Token t) {
@@ -1097,11 +1086,7 @@ public class Parser {
         return todos;
     }
 
-    private void JumpEOL() {
-        while(currentToken.getTokenType().equals(MingolToken.EOL)){
-            AdvanceToken();
-        }
-    }
+    // M2: se borró JumpEOL (sin referencias)
 
     // Tarea 5 (DS5): se borró ParseBlock() sin parámetros; queda ParseBlock(tipo, cierres)
 
