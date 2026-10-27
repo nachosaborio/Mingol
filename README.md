@@ -26,7 +26,7 @@ java --enable-preview -jar Mingol.jar <Programa>.MINGOL
    00002 print ( (Factor1) );
            ERROR 103: Identificador con mayúsculas [Factor1].
            ERROR 303: Identificador no encontrado [Factor1].
-   00003 REAL r := 1.;
+   00003 r := 1.;
            ERROR 109: Constante real sin dígito antes o después del punto [1.].
    ```
 
@@ -52,7 +52,7 @@ Con Ant, desde la raíz del proyecto:
 
 ```
 ant compile
-java --enable-preview -cp build\classes Mingol.Mingol prueba.mingol
+java --enable-preview -cp build\classes Mingol.Mingol proyecto.mingol
 ```
 
 También se puede abrir como proyecto de NetBeans (`nbproject/`).
@@ -61,7 +61,7 @@ Para generar el `.jar` (queda en `dist/Mingol.jar`):
 
 ```
 ant jar
-java --enable-preview -jar dist\Mingol.jar prueba.mingol
+java --enable-preview -jar dist\Mingol.jar proyecto.mingol
 ```
 
 ## Pruebas
@@ -75,6 +75,7 @@ powershell -ExecutionPolicy Bypass -File tests\ci\ejecutar-pruebas.ps1
 - `PruebasCriticos`: los errores críticos (cuelgues, excepciones, invocación de `a68g`).
 - `PruebasArchivoErrores`: el formato y el orden del archivo de errores.
 - `PruebasLexico`: el analizador léxico (identificadores, comentarios, constantes, longitud de línea, operadores y palabras reservadas).
+- `PruebasSintaxis`: el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa y comandos desconocidos).
 
 Trabajan siempre en una carpeta temporal y nunca ejecutan el `a68g` real: usan `java.exe` como sustituto.
 
@@ -102,7 +103,7 @@ El flujo de [GitHub Actions](.github/workflows/ci.yml) corre en Windows:
 
 ## Estado
 
-Están hechas las correcciones de los errores críticos, el formato del archivo de errores y el analizador léxico (identificadores, comentarios, constantes, longitud de línea, operadores y palabras reservadas). Quedan pendientes la sintaxis, la semántica y la validación del nombre del archivo de entrada, por lo que los programas de ejemplo (`proyecto.mingol`, `prueba.mingol`) todavía no pasan el análisis.
+Están hechas las correcciones de los errores críticos, el formato del archivo de errores, el analizador léxico y el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa y comandos desconocidos). Quedan pendientes la semántica (por ejemplo, `GOTO` a una etiqueta definida más adelante, los tipos en la asignación y la validación del `FOR`) y la validación del nombre del archivo de entrada. El programa de ejemplo `proyecto.mingol` ya pasa el análisis sintáctico, pero todavía no llega a `a68g`: tiene tres textos de más de 30 caracteres (`ERROR 111`) y dos `GOTO` hacia adelante (`ERROR 303`, pendiente de la semántica).
 
 ## Créditos
 

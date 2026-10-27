@@ -3,6 +3,7 @@ package Evaluador;
 import Parser.Block;
 import Parser.Booleano;
 import Parser.Decimal;
+import Parser.Declaracion;
 import Parser.Etiqueta;
 import Parser.Expression;
 import Parser.ExpressionStatement;
@@ -16,6 +17,7 @@ import Parser.LetStatement;
 import Parser.Prefix;
 import Parser.Print;
 import Parser.Program;
+import Parser.Secuencia;
 import Parser.Statement;
 import Parser.StringLiteral;
 import Errores.Mensaje;
@@ -176,6 +178,31 @@ public class Evaluator {
                     return value;
                 }
                 break;
+            case "Declaracion":
+                // Área 3: cada variable con el código de LetStatement (NULL, 304); se devuelve el primer Errado
+                Declaracion declaracion = (Declaracion) node;
+                Errado primeroDeclaracion = null;
+                for (LetStatement variable : declaracion.getVariables()) {
+                    Objeto resultado = Evaluate(variable, env);
+                    if (resultado instanceof Errado && primeroDeclaracion == null) {
+                        primeroDeclaracion = (Errado) resultado;
+                    }
+                }
+                return primeroDeclaracion;
+            case "Secuencia":
+                // Área 3 (S3): solo se validan los identificadores (303 como hoy); no se calculan valores
+                Secuencia secuencia = (Secuencia) node;
+                Errado primeroSecuencia = null;
+                for (Identifier id : secuencia.getIdentificadores()) {
+                    Objeto resultado = EvaluateIdentifier(id, env);
+                    if (resultado instanceof Errado && primeroSecuencia == null) {
+                        primeroSecuencia = (Errado) resultado;
+                    }
+                }
+                return primeroSecuencia;
+            case "Asignacion":
+                // Área 3 (DS4): la asignación no se evalúa; sus validaciones son del área 4
+                return null;
             case "Identifier":
                 Identifier identifier = (Identifier) node;
                 return EvaluateIdentifier(identifier, env);
@@ -252,26 +279,21 @@ public class Evaluator {
     private static Objeto EvaluateIfExpression(If si, Environment env) {
         assert si != null :
                 "El if es nulo";
+        // Área 3 (DS4): sin valores no hay rama que elegir; se evalúan la condición (conserva su 303),
+        // la consecuencia y la alternativa, y se devuelve el primer Errado o null (Evaluate(null) da null)
         Objeto condition = Evaluate(si.getCondition(), env);
-        // Condición null (parser) o Errado (ya registrado): sin error nuevo; IsTruthy elige la consecuencia como hoy
-        if (condition != null) {
-            assert condition != null :
-                    "La condicion es nula";
+        Objeto consecuencia = Evaluate(si.getConsequence(), env);
+        Objeto alternativa = Evaluate(si.getAlternative(), env);
+        if (condition instanceof Errado) {
+            return condition;
         }
-
-        if (IsTruthy(condition)) {
-            // Consecuencia null del parser: no hay nada que evaluar
-            if (si.getConsequence() == null) {
-                return null;
-            }
-            assert si.getConsequence() != null :
-                    "La consecuencia es null";
-            return Evaluate(si.getConsequence(), env);
-        } else if (si.getAlternative() != null) {
-            return Evaluate(si.getAlternative(), env);
-        } else {
-            return NULL;
+        if (consecuencia instanceof Errado) {
+            return consecuencia;
         }
+        if (alternativa instanceof Errado) {
+            return alternativa;
+        }
+        return null;
     }
 
     // Se recibe el nodo Infix para dar la línea a los 301/302

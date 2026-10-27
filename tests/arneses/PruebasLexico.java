@@ -179,10 +179,20 @@ public class PruebasLexico {
 
     // Tokens de "BEGIN" / "print ( newline );" / "END" a partir de la línea dada
     private static List<String> CuerpoC8(int desde) {
-        return L(T("BEGIN", "BEGIN", desde), EOL(desde),
+        return CuerpoC8(desde, true);
+    }
+
+    // Área 3 (REQ-LINE-04 corregido): la línea anterior a END no lleva ";"; con conPuntoYComa = false
+    // los tokens esperados son los de "print ( newline )" sin el SEMICOLON
+    private static List<String> CuerpoC8(int desde, boolean conPuntoYComa) {
+        List<String> r = L(T("BEGIN", "BEGIN", desde), EOL(desde),
                 T("PRINT", "print", desde + 1), T("LPAREN", "(", desde + 1), T("NEWLINE", "newline", desde + 1),
-                T("RPAREN", ")", desde + 1), T("SEMICOLON", ";", desde + 1), EOL(desde + 1),
-                T("END", "END", desde + 2), EOL(desde + 2));
+                T("RPAREN", ")", desde + 1));
+        if (conPuntoYComa) r.add(T("SEMICOLON", ";", desde + 1));
+        r.add(EOL(desde + 1));
+        r.add(T("END", "END", desde + 2));
+        r.add(EOL(desde + 2));
+        return r;
     }
 
     private static List<Caso> Casos() {
@@ -250,17 +260,19 @@ public class PruebasLexico {
         c.testProyecto = false;
         c.bajo.add(new String[]{"1", "ERROR 107"});
         casos.add(c);
-        c = C("3", "3b c2", "COMMENT dentro va CO suelto COMMENT", "BEGIN", "print ( newline );", "END");
+        // Área 3 (REQ-LINE-04 corregido): sin ";" antes de END, para que siga sin mensajes y válido
+        c = C("3", "3b c2", "COMMENT dentro va CO suelto COMMENT", "BEGIN", "print ( newline )", "END");
         c.tokens = L(EOL(1));
-        c.tokens.addAll(CuerpoC8(2));
+        c.tokens.addAll(CuerpoC8(2, false));
         c.lexicos = L();
         c.sinMensajes = true;
         c.testProyecto = true;
         c.archivoSinMensajes = true;
         casos.add(c);
-        c = C("3", "3c c3", "# texto con \"comilla #", "BEGIN", "print ( newline );", "END");
+        // Área 3 (REQ-LINE-04 corregido): sin ";" antes de END, para que siga sin mensajes y válido
+        c = C("3", "3c c3", "# texto con \"comilla #", "BEGIN", "print ( newline )", "END");
         c.tokens = L(EOL(1));
-        c.tokens.addAll(CuerpoC8(2));
+        c.tokens.addAll(CuerpoC8(2, false));
         c.lexicos = L();
         c.sinMensajes = true;
         c.testProyecto = true;
@@ -2066,7 +2078,7 @@ public class PruebasLexico {
         c.advertencias = L();
         c.booleano = true;
         l.add(c);
-        // "INT b := FALSE;" da el 201 de tipo (como antes) y el LetStatement se descarta: solo sin advertencia
+        // "INT b := FALSE;" da 210 (área 3, sintaxis corregida, decisión 3; antes el 201 de tipo): solo sin advertencia
         c = U("L7 INT b := FALSE; sin advertencia", "INT b := FALSE;");
         c.advertencias = L();
         l.add(c);
@@ -2238,9 +2250,12 @@ public class PruebasLexico {
         // BEGIN y END quedaron dentro del comentario: 307 y 308 reales, en el bloque final
         c.finales = L("ERROR 307: No se encontró una sentencia BEGIN [BEGIN].", "ERROR 308: No se encontró una sentencia END [END].");
         l.add(c);
-        l.add(TP("c2", true, true, "COMMENT dentro va CO suelto COMMENT", "BEGIN", "print ( newline );", "END"));
-        l.add(TP("c3", true, true, "# texto con \"comilla #", "BEGIN", "print ( newline );", "END"));
-        String l99 = "print ( \"" + "x".repeat(28) + "\" );";
+        // Área 3 (REQ-LINE-04 corregido): c2, c3, c4, c6, c7, c8 y c9 sin ";" en la línea anterior a END
+        // (si no, el nuevo 206 los hace inválidos o agrega un mensaje al archivo exacto)
+        l.add(TP("c2", true, true, "COMMENT dentro va CO suelto COMMENT", "BEGIN", "print ( newline )", "END"));
+        l.add(TP("c3", true, true, "# texto con \"comilla #", "BEGIN", "print ( newline )", "END"));
+        // c4: el relleno conserva las 99 columnas
+        String l99 = "print ( \"" + "x".repeat(28) + "\" )";
         l99 = l99 + " ".repeat(99 - l99.length());
         c = TP("c4", true, false, "BEGIN", l99, "END");
         c.bajo.put(2, L(F(113, "99")));
@@ -2251,15 +2266,16 @@ public class PruebasLexico {
         c.sin.add("ERROR 308");
         l.add(c);
         String t31 = "abcdefghijklmnopqrstuvwxyz01234";
-        c = TP("c6", true, false, "BEGIN", "print ( \"" + t31 + "\" );", "END");
+        c = TP("c6", true, false, "BEGIN", "print ( \"" + t31 + "\" )", "END");
         c.bajo.put(2, L(F(111, t31)));
         l.add(c);
-        l.add(TP("c7", true, true, "CO Factor1 _x 1. CO", "BEGIN", "print ( newline );", "END"));
-        l.add(TP("c8", true, true, "BEGIN", "print ( newline );", "END"));
-        c = TP("c9", true, false, "BEGIN", "print ( newline );", "END", "CO sin cerrar");
+        l.add(TP("c7", true, true, "CO Factor1 _x 1. CO", "BEGIN", "print ( newline )", "END"));
+        l.add(TP("c8", true, true, "BEGIN", "print ( newline )", "END"));
+        c = TP("c9", true, false, "BEGIN", "print ( newline )", "END", "CO sin cerrar");
         c.bajo.put(4, L(F(107, "CO")));
         l.add(c);
-        // c10: sin 1xx; el 204 de "INT x;" sin valor es del área 3 (no se comprueba la validez)
+        // c10: sin 1xx; desde el área 3 (sintaxis corregida) da 206 [;] y 217 [END] por no tener
+        // comandos (no se comprueba la validez)
         l.add(TP("c10", false, null, "BEGIN", "INT factor1;", "END"));
         return l;
     }

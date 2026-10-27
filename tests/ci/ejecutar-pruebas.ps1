@@ -25,8 +25,8 @@ $logs = $Logs
 New-Item -ItemType Directory -Force $arnes, $logs | Out-Null
 
 # Compila los arneses contra build\classes
-# Área 2: se suma PruebasLexico
-$fuentes = "RunTestProyecto", "PruebasArchivoErrores", "PruebasCriticos", "PruebasLexico" |
+# Área 2: se suma PruebasLexico; área 3: se suma PruebasSintaxis
+$fuentes = "RunTestProyecto", "PruebasArchivoErrores", "PruebasCriticos", "PruebasLexico", "PruebasSintaxis" |
     ForEach-Object { Join-Path $Repo "tests\arneses\$_.java" }
 & javac -encoding UTF-8 -nowarn -cp $clases -d $arnes @fuentes
 if ($LASTEXITCODE -ne 0) { throw "No compilaron los arneses." }
@@ -75,6 +75,8 @@ $errores = Join-Path $env:TEMP "mingol-errores"
 $criticos = Join-Path $env:TEMP "mingol-criticos"
 # Carpeta de trabajo de PruebasLexico (área 2)
 $lexico = Join-Path $env:TEMP "mingol-lexico"
+# Carpeta de trabajo de PruebasSintaxis (área 3)
+$sintaxis = Join-Path $env:TEMP "mingol-sintaxis-arnes"
 
 # Área 1 (archivo de errores) y regresión de críticos. Sin 'preservacion': necesita una captura del código viejo
 foreach ($modo in "ejemplos", "unitarias", "propiedades", "main") {
@@ -87,6 +89,10 @@ foreach ($modo in "unitarias", "main") {
 foreach ($modo in "unitarias", "propiedades") {
     $resultados += Correr "PruebasLexico" $modo $lexico $false
 }
+# Área 3 (sintaxis). Sin 'exploracion' ni 'capturar'/'preservacion': dependen del código sin arreglar y de su captura local
+foreach ($modo in "unitarias", "propiedades") {
+    $resultados += Correr "PruebasSintaxis" $modo $sintaxis $false
+}
 # Segunda pasada con aserciones (NetBeans ejecuta con -ea)
 if (-not $SinEa) {
     foreach ($modo in "ejemplos", "unitarias") {
@@ -95,6 +101,8 @@ if (-not $SinEa) {
     $resultados += Correr "PruebasCriticos" "unitarias" $criticos $true
     # Área 2 con aserciones
     $resultados += Correr "PruebasLexico" "unitarias" $lexico $true
+    # Área 3 con aserciones
+    $resultados += Correr "PruebasSintaxis" "unitarias" $sintaxis $true
 }
 
 $fallidos = @($resultados | Where-Object { $_.Codigo -ne 0 })

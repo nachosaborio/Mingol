@@ -83,10 +83,14 @@ public class PruebasCriticos {
         programa("c4", true, "BEGIN", "INT x := 1;", "CHAR y := x;", "END");
         programa("c5", true, "BEGIN", "inicio:", "print ( (inicio) );", "END");
         programa("c6", true, "BEGIN", "CHAR y := end;", "END");
-        programa("e1", false, "BEGIN", "INT x := 1;", "END");
+        // e1 (área 3, sintaxis corregida): declaración sin valor inicial y asignación sin ";" antes de END,
+        // para que siga siendo válido (lo usan main (2), (5), (6) y ref-e1)
+        programa("e1", false, "BEGIN", "INT x;", "x := 1", "END");
         programa("e2", false, "BEGIN", "INT x := 1;", "IF (x) THEN");
         programa("e3", false, "BEGIN", "INT x := 1;", "IF (x) THEN", "SKIP;", "ELSE");
-        programa("e4", false, "BEGIN", "RETURN 5", "END");
+        // e4 con SKIP (DS1, sintaxis corregida): la instrucción ALGOL ignorada no cuenta como comando;
+        // sin el SKIP daría 217 y main dejaría de verlo válido
+        programa("e4", false, "BEGIN", "RETURN 5", "SKIP", "END");
         programa("e5", false, "BEGIN", "INT x := 1;", "x = 3");
         programa("e6", false, "BEGIN", "FOR x FROM 1 BY 1 TO 3 DO");
         programa("e7", true, "BEGIN", "INT x := 1;", "IF (x) THEN", "", "");
@@ -164,8 +168,8 @@ public class PruebasCriticos {
         // Bug B: IF sin FI silencioso
         CasoIfSinFi(carpeta, "e3", "EOF");
         CasoIfSinFi(carpeta, "e7", "EOF");
-        // e8 da EOF: ParseSkip con "SKIP;" consume el END de la línea siguiente (queda para la spec de sintaxis)
-        CasoIfSinFi(carpeta, "e8", "EOF");
+        // e8 da END (área 3, sintaxis corregida): "SKIP;" ya no consume el END de la línea siguiente
+        CasoIfSinFi(carpeta, "e8", "END");
         // Bug C
         CasoMainSinArgumentos(carpeta);
         CasoCadenaExec("a&mkdir INYECTADO&b.mingol");
@@ -1531,8 +1535,9 @@ public class PruebasCriticos {
     // Parser aislado (R8): 204 de FI con EOF y ParseProgram vuelve en menos de 10 s
     private static void UnitariasParser(Path dir) throws Exception {
         Files.createDirectories(dir);
-        String esperado = "Error 204: Se esperaba un token de tipo FI pero se obtuvo un EOF";
         for (String id : new String[]{"e2", "e3", "e7", "e8", "e9"}) {
+            // e8 (área 3, sintaxis corregida): "SKIP;" ya no consume el END, así que el 204 de FI se obtiene con END
+            String esperado = "Error 204: Se esperaba un token de tipo FI pero se obtuvo un " + (id.equals("e8") ? "END" : "EOF");
             Escribir(dir.resolve(id + ".mingol"), PROGRAMAS.get(id), CON_SALTO_FINAL.get(id));
             ResultadoHijo r = LanzarHijo(Arrays.asList("hijoparser", id), dir, "unit-parser-" + id, 64 * 1024);
             List<String> d = new ArrayList<>();
@@ -1547,7 +1552,8 @@ public class PruebasCriticos {
             String ms = LineaConPrefijo(r.stdout, "PARSE_MS|");
             if (ms == null) d.add("ParseProgram no volvió");
             else if (Long.parseLong(ms.substring("PARSE_MS|".length())) >= LIMITE_SEGUNDOS * 1000) d.add("ParseProgram tardó " + ms);
-            Registrar("parser " + id + " (204 de FI con EOF, < 10 s)", d, r);
+            // Nombre con el token obtenido (END en e8 desde el área 3)
+            Registrar("parser " + id + " (204 de FI con " + (id.equals("e8") ? "END" : "EOF") + ", < 10 s)", d, r);
         }
     }
 

@@ -90,11 +90,16 @@ public class PruebasArchivoErrores {
     private static final Pattern FORMATO_MENSAJE = Pattern.compile(
             "^ {8}(ERROR \\d{3}: .+ \\[.*\\]\\.|Advertencia: instrucción no es soportada por esta versión \\[.+\\]\\.)$");
 
-    // Mensajes que hoy produce el parser para "x = 3;" (t7, t11, t12), traducidos al formato nuevo
-    private static final String[] X_IGUAL_3 = {
-        "ERROR 204: Se esperaba un token de tipo IDENT pero se obtuvo EQ [=].",
-        "ERROR 203: Token que no puede iniciar una expresión [=]."
-    };
+    // Área 3 (sintaxis corregida, REQ-ALGOL-02): "x = 3;" y "y = 3;" ya no dan la cascada 204/203
+    // común, sino un solo 205 con el primer token del comando; por eso X_IGUAL_3 dejó de ser común
+    private static String E205(String lexema) {
+        return "ERROR 205: No es una instrucción válida de MINGOL ni de ALGOL [" + lexema + "].";
+    }
+
+    // Área 3 (REQ-LINE-04 corregido): la línea anterior a un cierre no lleva ";"
+    private static String E206(String cierre) {
+        return "ERROR 206: La línea anterior a " + cierre + " no lleva punto y coma [;].";
+    }
 
     // ------------------------------------------------------------------
     // Casos de la sección Examples del diseño
@@ -167,64 +172,75 @@ public class PruebasArchivoErrores {
     // t1..t13 (no hay t8 en bugfix.md ni en el diseño), c1, c6 y e8 con sus esperados (diseño, Examples; D1)
     private static List<Caso> Casos() {
         List<Caso> l = new ArrayList<>();
-        // Borde t1: líneas 3 y 4 fijadas con lo observado del parser actual, traducido al formato nuevo
+        // Área 3 (sintaxis corregida): fuentes y esperados de Integration Tests del diseño. Las
+        // declaraciones van sin valor inicial (decisión 3), el último comando antes de END/FI va sin ";"
+        // (REQ-LINE-04) y "x = 3;" da 205 (REQ-ALGOL-02)
+        // Borde t1: fuente sin cambios; 210 en la 3, 205 en la 4 y 206 en la 6 (sintaxis corregida)
         l.add(Simple("t1", "", "BEGIN", "INT a := 1.5;", "x = 3;", "   ", "print ( (zz) );", "END", "")
                 .bajo(3, T1_LINEA3)
-                .bajo(4, X_IGUAL_3)
-                .bajo(6, "ERROR 303: Identificador no encontrado [zz]."));
-        l.add(Simple("t2", "BEGIN", "INT a := 1;", "INT a := 2;", "print ( (b) );", "GOTO nada;", "END")
+                .bajo(4, E205("x"))
+                .bajo(6, E206("END"), "ERROR 303: Identificador no encontrado [zz]."));
+        // t2: declaraciones sin valor inicial y GOTO sin ";" antes de END (sintaxis corregida)
+        l.add(Simple("t2", "BEGIN", "INT a;", "INT a;", "print ( (b) );", "GOTO nada", "END")
                 .bajo(3, "ERROR 304: Identificador ya declarado [a].")
                 .bajo(4, "ERROR 303: Identificador no encontrado [b].")
                 .bajo(5, "ERROR 303: Identificador no encontrado [nada]."));
-        l.add(Simple("t3", "BEGIN", "INT a := 1;", "LONG x;", "print ( (b) );", "END")
+        // t3: declaración sin valor inicial y print sin ";" antes de END (sintaxis corregida)
+        l.add(Simple("t3", "BEGIN", "INT a;", "LONG x;", "print ( (b) )", "END")
                 .bajo(3, "Advertencia: instrucción no es soportada por esta versión [LONG].")
                 .bajo(4, "ERROR 303: Identificador no encontrado [b]."));
-        l.add(Simple("t4", "BEGIN", "INT a := 1;", "print ( (a) );", "END"));
-        l.add(Simple("t5", "BEGIN", "BEGIN", "INT a := 1;", "END", "END")
+        // t4: válido con la sintaxis corregida (invoca el eco en main)
+        l.add(Simple("t4", "BEGIN", "INT a;", "print ( (a) )", "END"));
+        // t5: con un comando para que el END no dé 217 (sintaxis corregida)
+        l.add(Simple("t5", "BEGIN", "BEGIN", "INT a;", "print ( (a) )", "END", "END")
                 .bajo(2, "ERROR 305: No puede haber más de una sentencia BEGIN por archivo [BEGIN].")
-                .bajo(5, "ERROR 306: No puede haber más de una sentencia END por archivo [END]."));
-        l.add(Simple("t6", "INT a := 1;", "print ( (a) );")
+                .bajo(6, "ERROR 306: No puede haber más de una sentencia END por archivo [END]."));
+        // t6: sin BEGIN los comandos se analizan normalmente (DS3): solo 307 y 308
+        l.add(Simple("t6", "INT a;", "print ( (a) );")
                 .fin("ERROR 307: No se encontró una sentencia BEGIN [BEGIN].",
                      "ERROR 308: No se encontró una sentencia END [END]."));
-        l.add(Simple("t7", "BEGIN", "INT a := 1;", "x = 3;", "print ( (b) );", "END")
-                .bajo(3, X_IGUAL_3)
+        // t7: "x = 3;" da 205 y print sin ";" antes de END (sintaxis corregida)
+        l.add(Simple("t7", "BEGIN", "INT a;", "x = 3;", "print ( (b) )", "END")
+                .bajo(3, E205("x"))
                 .bajo(4, "ERROR 303: Identificador no encontrado [b]."));
-        l.add(Simple("t9", "BEGIN", "END", "INT a := 1;", "INT a := 2;", "print ( (b) );")
-                .bajo(4, "ERROR 304: Identificador ya declarado [a].")
-                .bajo(5, "ERROR 303: Identificador no encontrado [b]."));
-        // t10: extensión en mayúsculas; sin mensajes (debe fallar solo por el separador)
+        // t9: lo que sigue al END da 208 y ya no se analiza (sintaxis corregida, REQ-STRUCT-05)
+        l.add(Simple("t9", "BEGIN", "print ( newline )", "END", "INT a;", "INT a;", "print ( (b) );")
+                .bajo(4, "ERROR 208: Comando después de END [INT].")
+                .bajo(5, "ERROR 208: Comando después de END [INT].")
+                .bajo(6, "ERROR 208: Comando después de END [print]."));
+        // t10: extensión en mayúsculas; válido con la sintaxis corregida (asignación sin ";" antes de END)
         l.add(Nuevo("t10", "T10.MINGOL", "T10.MINGOL", "T10-errores.txt", "T10.a68", true,
-                "BEGIN", "INT a := 1;", "END"));
+                "BEGIN", "INT a;", "a := 1", "END"));
         // t11: carpeta con punto; el -errores.txt va en la carpeta actual, el .a68 junto al fuente
         l.add(Nuevo("t11", "sub.dir" + File.separator + "t11.mingol", "sub.dir" + File.separator + "t11.mingol",
                 "t11-errores.txt", "sub.dir" + File.separator + "t11.a68", true,
                 "BEGIN", "x = 3;", "END")
-                .bajo(2, X_IGUAL_3));
-        // t12: invocado sin extensión (se normaliza como main a t12.mingol)
+                .bajo(2, E205("x")));
+        // t12: invocado sin extensión (se normaliza como main a t12.mingol); "y = 3;" da 205 (sintaxis corregida)
         l.add(Nuevo("t12", "t12.mingol", "t12", "t12-errores.txt", "t12.a68", true,
                 "BEGIN", "LONG x;", "y = 3;", "END")
                 .bajo(2, "Advertencia: instrucción no es soportada por esta versión [LONG].")
-                .bajo(3, X_IGUAL_3));
-        // t13 (3.11 con valor erróneo): y cuenta como declarada aunque su valor sea un Errado
-        l.add(Simple("t13", "BEGIN", "CHAR y := zz;", "print ( (y) );", "INT y := 1;", "END")
-                .bajo(2, "ERROR 303: Identificador no encontrado [zz].")
-                .bajo(4, "ERROR 304: Identificador ya declarado [y]."));
-        l.add(Simple("c1", "BEGIN", "inicio:", "CHAR y := inicio;", "END")
+                .bajo(3, E205("y")));
+        // t13 (DS2, sintaxis corregida): con valor inicial da 210, y queda declarada y el valor no se evalúa
+        l.add(Simple("t13", "BEGIN", "CHAR y := zz;", "print ( (y) )", "END")
+                .bajo(2, "ERROR 210: Declaración con valor inicial [:=]."));
+        // c1: la etiqueta usada como identificador ahora en la condición de un IF (sintaxis corregida,
+        // decisión 3: ya no hay valor inicial); sigue cubriendo el ClassCastException de críticos
+        l.add(Simple("c1", "BEGIN", "inicio:", "IF ( inicio ) THEN", "SKIP", "FI", "END")
                 .bajo(3, "ERROR 303: Identificador no encontrado [inicio]."));
-        l.add(Simple("c6", "BEGIN", "CHAR y := end;", "END")
+        // c6: "end" en la condición de un IF en lugar del valor inicial (sintaxis corregida)
+        l.add(Simple("c6", "BEGIN", "IF ( end ) THEN", "SKIP", "FI", "END")
                 .bajo(2, "ERROR 303: Identificador no encontrado [end]."));
-        // e8: el 204 (línea n+1 = 6) va bajo la línea 5 (D1); el 308 falso es el único del bloque final
-        l.add(Simple("e8", "BEGIN", "INT x := 1;", "IF (x) THEN", "SKIP;", "END")
-                .bajo(5, "ERROR 204: Se esperaba un token de tipo FI pero se obtuvo EOF [EOF].")
-                .fin("ERROR 308: No se encontró una sentencia END [END]."));
+        // e8: "SKIP;" ya no consume el END (sintaxis corregida): 206 en la 4, 204 de FI con END en la 5, sin 308
+        l.add(Simple("e8", "BEGIN", "INT x;", "IF (x) THEN", "SKIP;", "END")
+                .bajo(4, E206("END"))
+                .bajo(5, "ERROR 204: Se esperaba un token de tipo FI pero se obtuvo END [END]."));
         return l;
     }
 
-    // t1, línea 3 ("INT a := 1.5;"): 201 con lexema [1.5] y lo que la recuperación actual produce
-    // después. Observado en la tarea 1: "Linea 3 Error 201: a no es un INT" y "Linea 3 Error 203: Token inválido: ;"
+    // t1, línea 3 ("INT a := 1.5;"): área 3 (sintaxis corregida, decisión 3): un solo 210 en lugar del 201 + 203
     private static final String[] T1_LINEA3 = {
-        "ERROR 201: El valor inicial no corresponde al tipo INT de la variable a [1.5].",
-        "ERROR 203: Token que no puede iniciar una expresión [;]."
+        "ERROR 210: Declaración con valor inicial [:=]."
     };
 
     public static void main(String[] args) throws Exception {
@@ -560,11 +576,23 @@ public class PruebasArchivoErrores {
         int begins = limpio ? 1 : CuantasMarcas(r);
         for (int i = 0; i < begins; i++) l.add(Sangria(r) + "BEGIN");
 
+        // Área 3 (sintaxis corregida): en los limpios las declaraciones (sin valor inicial) van primero,
+        // para que no haya 209 (REQ-STRUCT-03)
+        if (limpio) {
+            int decl = r.nextInt(4);
+            for (int i = 0; i < decl; i++) {
+                String v = VARS_G[i];
+                declaradas.add(v);
+                l.add(Sangria(r) + "INT " + v + ";");
+            }
+        }
         int lineas = 1 + r.nextInt(15);
         for (int i = 0; i < lineas; i++) {
             if (limpio) LineaLimpia(r, l, declaradas, etiquetas);
             else LineaCualquiera(r, l, etiquetas);
         }
+        // Área 3 (REQ-LINE-04 y 217): SKIP final sin ";" antes de END, así los limpios no tienen 206 ni 217
+        if (limpio) l.add(Sangria(r) + "SKIP");
 
         int ends = limpio ? 1 : CuantasMarcas(r);
         for (int i = 0; i < ends; i++) l.add(Sangria(r) + "END");
@@ -603,15 +631,11 @@ public class PruebasArchivoErrores {
     private static void LineaLimpia(Random r, List<String> l, List<String> declaradas, List<String> etiquetas) {
         switch (r.nextInt(7)) {
             case 0:
-            case 1: {
-                // Declaración de una variable todavía no declarada
-                String v = null;
-                for (String cand : VARS_G) if (!declaradas.contains(cand)) { v = cand; break; }
-                if (v == null) { l.add(Blanca(r)); return; }
-                declaradas.add(v);
-                l.add(Sangria(r) + "INT " + v + " := " + r.nextInt(1000) + ";");
+            case 1:
+                // Área 3 (sintaxis corregida): las declaraciones ya se generaron antes de los comandos
+                // (sin 209); en su lugar, un SKIP con ";" seguido de otro comando
+                l.add(Sangria(r) + "SKIP;");
                 return;
-            }
             case 2:
                 if (declaradas.isEmpty()) { l.add(Blanca(r)); return; }
                 l.add(Sangria(r) + "print ( (" + declaradas.get(r.nextInt(declaradas.size())) + ") );");
@@ -630,7 +654,8 @@ public class PruebasArchivoErrores {
                 if (declaradas.isEmpty()) { l.add(Blanca(r)); return; }
                 String v = declaradas.get(r.nextInt(declaradas.size()));
                 l.add(Sangria(r) + "IF ( " + v + " ) THEN");
-                l.add("  print ( (" + v + ") );");
+                // Área 3 (REQ-LINE-04): la línea anterior a FI no lleva ";"
+                l.add("  print ( (" + v + ") )");
                 l.add("FI;");
                 return;
             default:
@@ -1072,7 +1097,9 @@ public class PruebasArchivoErrores {
         // Traducción con la tabla 2.10
         String nuevo;
         String lexemaEsperado = null;
-        if (viejo.equals("205")) {
+        // S1 (área 3, sintaxis corregida): "205" es el 101 solo con "Token ilegal:"; cualquier otro
+        // "205" es el nuevo 205 de REQ-ALGOL-02 y cae en la rama nuevo = viejo
+        if (viejo.equals("205") && resto.startsWith("Token ilegal:")) {
             nuevo = "101";
             lexemaEsperado = Lexema(resto.replaceFirst("^Token ilegal: ", ""));
         } else if (viejo.equals("203") && resto.startsWith("conversion invalida a ")) {
@@ -1226,6 +1253,8 @@ public class PruebasArchivoErrores {
     // Modo hijoreglas: 3.11 y los arreglos originales (R6), un resultado por línea
     // ------------------------------------------------------------------
 
+    // OBSOLETO desde el área 3 (sintaxis corregida): sus fuentes usan declaraciones con valor inicial
+    // (ahora 210) y la regla del ";" vieja. Solo lo usa preservacion, que no está en CI; no se actualiza
     private static void HijoReglas() throws Exception {
         PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
 
@@ -1858,24 +1887,59 @@ public class PruebasArchivoErrores {
         return toks;
     }
 
-    // e8: el 204 de ExpectedCurrentTokenError con lexema EOF y línea n+1 = 6
+    // e8 (área 3, sintaxis corregida): "SKIP;" ya no consume el END, así que en lugar del 204 [EOF]
+    // en la línea n+1 salen el 206 [;] en la 4 y el 204 de FI con lexema END en la 5, y nada más
     private static void UnitariasParserE8() {
-        Parser p = new Parser(new Lexer("BEGIN\nINT x := 1;\nIF (x) THEN\nSKIP;\nEND\n"));
+        Parser p = new Parser(new Lexer("BEGIN\nINT x;\nIF (x) THEN\nSKIP;\nEND\n"));
         p.ParseProgram();
         List<String> d = new ArrayList<>();
-        List<Mensaje> eof = new ArrayList<>();
+        List<String> esperado = Arrays.asList(
+                "4:ERROR 206: La línea anterior a END no lleva punto y coma [;].",
+                "5:ERROR 204: Se esperaba un token de tipo FI pero se obtuvo END [END].");
+        List<String> obtenido = Formateados(p.GetMensajes());
+        if (!esperado.equals(obtenido)) d.add("GetMensajes(): esperado " + esperado + ", obtenido " + obtenido);
         for (Mensaje m : p.GetMensajes()) {
-            if (Integer.valueOf(204).equals(m.getCodigo()) && "EOF".equals(m.getLexema())) eof.add(m);
+            if (m.getCategoria() != Mensaje.Categoria.SINTACTICO) d.add("categoría " + m.getCategoria() + " en " + m.Formatear());
         }
-        if (eof.size() != 1) {
-            d.add(eof.size() + " mensajes 204 [EOF]; GetMensajes(): " + Formateados(p.GetMensajes()));
+        // La cadena de GetErrors() del 204 conserva el texto de hoy ("... pero se obtuvo un END")
+        if (p.GetErrors().stream().noneMatch(e -> e.contains("Error 204: Se esperaba un token de tipo FI pero se obtuvo un END"))) {
+            d.add("GetErrors() sin el 204 de FI con END: " + p.GetErrors());
+        }
+        Registrar("Parser e8: GetMensajes() con 206 [;] en la 4 y 204 FI [END] en la 5 (sin 204 [EOF])", d, null);
+        UnitariasCorrespondeS1();
+    }
+
+    // S1 (área 3, sintaxis corregida): Corresponde traduce "205" a 101 solo con "Token ilegal:"; el
+    // nuevo 205 de REQ-ALGOL-02 corresponde a 205. Se usan las cadenas y Mensajes reales del parser
+    private static void UnitariasCorrespondeS1() {
+        Parser p = new Parser(new Lexer("BEGIN\nfoo;\n@\nSKIP\nEND\n"));
+        p.ParseProgram();
+        List<String> d = new ArrayList<>();
+        List<Mensaje> msj = p.GetMensajes();
+        List<String> cad = p.GetErrors();
+        boolean hay101 = false, hay205 = false;
+        if (msj.size() != cad.size()) {
+            d.add(msj.size() + " Mensajes y " + cad.size() + " cadenas: " + Formateados(msj) + " / " + cad);
         } else {
-            Mensaje m = eof.get(0);
-            if (m.getLinea() != 6) d.add("línea " + m.getLinea() + " (se esperaba 6, n+1)");
-            if (m.getCategoria() != Mensaje.Categoria.SINTACTICO) d.add("categoría " + m.getCategoria());
-            if (!"Se esperaba un token de tipo FI pero se obtuvo EOF".equals(m.getTexto())) d.add("texto [" + m.getTexto() + "]");
+            for (int i = 0; i < msj.size(); i++) {
+                Mensaje m = msj.get(i);
+                String[] campos = {String.valueOf(m.getLinea()), String.valueOf(m.getCodigo()), String.valueOf(m.getCategoria()),
+                        m.getLexema(), m.getTexto()};
+                String r = Corresponde(cad.get(i), campos);
+                if (r != null) d.add("correspondencia " + (i + 1) + ": " + r);
+                if (Integer.valueOf(101).equals(m.getCodigo())) hay101 = true;
+                if (Integer.valueOf(205).equals(m.getCodigo())) {
+                    hay205 = true;
+                    // El mismo 205 no debe corresponder a un 101
+                    campos[1] = "101";
+                    campos[2] = "LEXICO";
+                    if (Corresponde(cad.get(i), campos) == null) d.add("el 205 [" + m.getLexema() + "] se aceptó como 101");
+                }
+            }
         }
-        Registrar("Parser e8: GetMensajes() con el 204 [EOF] en la línea n+1", d, null);
+        if (!hay101) d.add("sin 101 [@]: " + Formateados(msj));
+        if (!hay205) d.add("sin 205 [foo]: " + Formateados(msj));
+        Registrar("Corresponde (S1): 205 de 'Token ilegal:' -> 101; 205 de REQ-ALGOL-02 -> 205", d, null);
     }
 
     private static List<String> Formateados(List<Mensaje> l) {
@@ -2071,7 +2135,8 @@ public class PruebasArchivoErrores {
                 Registrar("propiedad independencia " + c.id, difI, r);
             }
 
-            // Valor inicial (2.16, 3.11): CHAR y := zz; da el 303 bajo su línea; print ( (y) ); posterior sin 303
+            // Valor inicial (2.16, 3.11; área 3 DS2): CHAR y := zz; da el 210 bajo su línea y ningún 303 [zz];
+            // print ( (y) ); posterior sin 303
             List<String> difV = new ArrayList<>();
             int linY = -1;
             for (int i = 0; i < lineas.size(); i++) {
@@ -2082,8 +2147,14 @@ public class PruebasArchivoErrores {
             }
             if (linY >= 0) {
                 nValor++;
-                if (!bajo.getOrDefault(linY + 1, new ArrayList<>()).contains("ERROR 303: Identificador no encontrado [zz].")) {
-                    difV.add("falta el 303 [zz] bajo la línea " + (linY + 1) + "; hay " + bajo.getOrDefault(linY + 1, new ArrayList<>()));
+                // Área 3 (DS2, sintaxis corregida): la declaración con valor inicial da 210 [:=] y el valor
+                // no llega al evaluador, así que ya no hay 303 [zz]; y sigue declarada
+                List<String> bajoY = bajo.getOrDefault(linY + 1, new ArrayList<>());
+                if (!bajoY.contains("ERROR 210: Declaración con valor inicial [:=].")) {
+                    difV.add("falta el 210 [:=] bajo la línea " + (linY + 1) + "; hay " + bajoY);
+                }
+                if (bajoY.contains("ERROR 303: Identificador no encontrado [zz].")) {
+                    difV.add("303 [zz] bajo la línea " + (linY + 1) + " (DS2: el valor no se evalúa)");
                 }
                 for (int j = linY + 1; j < lineas.size(); j++) {
                     if (!lineas.get(j).trim().equals("print ( (y) );")) continue;
@@ -2224,7 +2295,9 @@ public class PruebasArchivoErrores {
         for (Caso c : Casos()) fijos.put(c.id, c);
         List<Caso> casos = new ArrayList<>();
         casos.add(fijos.get("t4"));
-        casos.add(Nuevo("e4", "e4.mingol", "e4.mingol", "e4-errores.txt", "e4.a68", false, "BEGIN", "RETURN 5", "END"));
+        // e4 con SKIP (DS1, sintaxis corregida): la instrucción ALGOL ignorada no cuenta como comando;
+        // sin el SKIP daría 217 y dejaría de invocar el eco
+        casos.add(Nuevo("e4", "e4.mingol", "e4.mingol", "e4-errores.txt", "e4.a68", false, "BEGIN", "RETURN 5", "SKIP", "END"));
         casos.add(fijos.get("t10"));
         casos.add(fijos.get("t3"));
         casos.add(fijos.get("t7"));

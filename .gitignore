@@ -1,2 +1,6 @@
-/dist/
-*.txt
+# Salidas de Mingol al analizar un programa (archivo de errores y copia .a68)
+*-errores.txt
+*.a68
+# Salida de Ant/NetBeans: de dist/ solo se versiona Mingol.jar
+/dist/*
+!/dist/Mingol.jar
