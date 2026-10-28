@@ -1948,6 +1948,29 @@ public class PruebasLexico {
         c.tokens = L(T("IDENT", "x", 1), EOL(1), EOL(2), EOL(3));
         c.lexer = L(E(107, 2, "COMMENT"));
         l.add(c);
+        // Pendiente 1 (C1): CO: / COMMENT: abren comentario, sin 106; el ":" es texto del comentario
+        c = U("2.7 C1 CO: cerrado", "BEGIN", "CO: texto CO", "SKIP", "END");
+        c.tokens = L(T("BEGIN", "BEGIN", 1), EOL(1), EOL(2), T("SKIP", "SKIP", 3), EOL(3), T("END", "END", 4), EOL(4));
+        c.lexer = L();
+        c.prohibidos = new ArrayList<>(Arrays.asList(106));
+        l.add(c);
+        // Pendiente 1 (C1): sin cierre, SKIP y END quedan dentro del comentario
+        c = U("2.7 C1 CO: sin cerrar", "BEGIN", "CO: texto", "SKIP", "END");
+        c.tokens = L(T("BEGIN", "BEGIN", 1), EOL(1), EOL(2), EOL(3), EOL(4));
+        c.lexer = L(E(107, 2, "CO"));
+        c.prohibidos = new ArrayList<>(Arrays.asList(106));
+        l.add(c);
+        // Pendiente 1 (C1): igual con COMMENT:
+        c = U("2.7 C1 COMMENT: cerrado", "BEGIN", "COMMENT: texto COMMENT", "SKIP", "END");
+        c.tokens = L(T("BEGIN", "BEGIN", 1), EOL(1), EOL(2), T("SKIP", "SKIP", 3), EOL(3), T("END", "END", 4), EOL(4));
+        c.lexer = L();
+        c.prohibidos = new ArrayList<>(Arrays.asList(106));
+        l.add(c);
+        c = U("2.7 C1 COMMENT: sin cerrar", "BEGIN", "COMMENT: texto", "SKIP", "END");
+        c.tokens = L(T("BEGIN", "BEGIN", 1), EOL(1), EOL(2), EOL(3), EOL(4));
+        c.lexer = L(E(107, 2, "COMMENT"));
+        c.prohibidos = new ArrayList<>(Arrays.asList(106));
+        l.add(c);
 
         // 2.8 Enteros (L4)
         Object[][] enteros = {
@@ -2261,7 +2284,7 @@ public class PruebasLexico {
         }
     }
 
-    // TestProyecto sobre c1–c10: archivo de errores esperado (ISO-8859-1, R6) y validez, en un hijo (R8)
+    // TestProyecto sobre c1–c14 (c11–c14: pendiente 1, C1): archivo de errores esperado (ISO-8859-1, R6) y validez, en un hijo (R8)
     private static class CasoTP {
         String id;
         String[] lineas;
@@ -2316,6 +2339,21 @@ public class PruebasLexico {
         // c10: sin 1xx; desde el área 3 (sintaxis corregida) da 206 [;] y 217 [END] por no tener
         // comandos (no se comprueba la validez)
         l.add(TP("c10", false, null, "BEGIN", "INT factor1;", "END"));
+        // Pendiente 1 (C1): CO: / COMMENT: abren comentario, sin 106 (archivo exacto, sin mensajes)
+        l.add(TP("c11", true, true, "BEGIN", "CO: texto CO", "SKIP", "END"));
+        l.add(TP("c13", true, true, "BEGIN", "COMMENT: texto COMMENT", "SKIP", "END"));
+        // Pendiente 1 (C1): sin cierre, 107 bajo la apertura; el 308 (EOF en la línea 5) va bajo la
+        // última línea por D1, así que se espera en bajo(4) y no en finales; ausencia explícita del 106
+        c = TP("c12", true, false, "BEGIN", "CO: texto", "SKIP", "END");
+        c.bajo.put(2, L(F(107, "CO")));
+        c.bajo.put(4, L("ERROR 308: No se encontró una sentencia END [END]."));
+        c.sin.add("ERROR 106");
+        l.add(c);
+        c = TP("c14", true, false, "BEGIN", "COMMENT: texto", "SKIP", "END");
+        c.bajo.put(2, L(F(107, "COMMENT")));
+        c.bajo.put(4, L("ERROR 308: No se encontró una sentencia END [END]."));
+        c.sin.add("ERROR 106");
+        l.add(c);
         return l;
     }
 
@@ -2369,8 +2407,9 @@ public class PruebasLexico {
                         }
                     }
                     if (!lexEsp.equals(lexObt)) dif.add("1xx del archivo: esperado " + lexEsp + ", obtenido " + lexObt);
-                    for (String s : c.sin) for (String a : arch) if (a.contains(s)) dif.add("el -errores.txt contiene [" + a.trim() + "]");
                 }
+                // Pendiente 1 (C1): los textos prohibidos se revisan en los dos modos (antes, solo en el no exacto)
+                for (String s : c.sin) for (String a : arch) if (a.contains(s)) dif.add("el -errores.txt contiene [" + a.trim() + "]");
             }
             Registrar("TestProyecto " + c.id, "U", true, dif);
         }
