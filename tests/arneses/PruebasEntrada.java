@@ -258,6 +258,7 @@ public class PruebasEntrada {
         boolean prep;                // área 5 (3.5, U7): el hijo es hijoprep (Preparar), no main
         String preparar;             // U7: lo que debe imprimir hijoprep tras "PREPARAR|"
         String rutaDQ2;              // U7 (b)–(d): <ruta> del aviso = RutaEfectiva(argumento), nunca absoluta (DQ2)
+        String dispositivo;          // área 5 (CI #9): ruta efectiva de un dispositivo; su rama (b)/(c) la decide el SO
         String fuenteDiag;           // fuente que se compara con el diagnóstico (bugfix.md)
         Retener retener;
         // Esperado
@@ -327,6 +328,22 @@ public class PruebasEntrada {
 
     private static Caso Invalido(String id, String archivo, String nombre) {
         return Invalido(id, "bugfix", archivo, Crlf(VALIDO), VALIDO, SinMensajes(), nombre, archivo);
+    }
+
+    // Área 5 (CI #9): rama de un nombre de dispositivo según el SO (DQ4), con Paths.get(ruta efectiva) en la
+    // carpeta del hijo: no existe -> (b); existe y no es regular -> (c); regular -> FALLA (el SO entregó un archivo)
+    private static String RamaDispositivo(Path cwd, String ruta, List<String> dif) {
+        Path p = cwd.resolve(Paths.get(ruta));
+        if (!Files.exists(p)) return NoEncontrado(ruta);
+        if (!Files.isRegularFile(p)) return NoEsArchivo(ruta);
+        dif.add("dispositivo " + ruta + ": el SO lo entrega como archivo regular, no cae en (b) ni en (c)");
+        return null;
+    }
+
+    // Área 5 (CI #9): marca un caso de dispositivo; el mensaje fijo queda solo como referencia de este equipo
+    private static Caso Dispositivo(Caso c, String ruta) {
+        c.dispositivo = ruta;
+        return c;
     }
 
     // Bloque de entrada fallido (E7, E18, E19): mensaje en stderr, sale 1, nada creado ni tocado
@@ -424,10 +441,12 @@ public class PruebasEntrada {
         // --- d01: dispositivos con o sin extensión caen en (b) (DQ4) ---
         String[][] d01 = {{"CON.MINGOL", "CON.MINGOL"}, {"CON", "CON.MINGOL"}, {"con.mingol", "con.mingol"},
                 {"AUX", "AUX.MINGOL"}, {"COM1", "COM1.MINGOL"}, {"LPT1.MINGOL", "LPT1.MINGOL"}, {"NUL.txt", "NUL.txt"}};
-        for (int i = 0; i < d01.length; i++) Entrada("d01" + (char) ('a' + i), "diseño", d01[i][0], NoEncontrado(d01[i][1]));
-        // --- d02: NUL (se abre NUL.MINGOL, rama b) y NUL. (rama c) ---
-        Entrada("d02a", "diseño", "NUL", NoEncontrado("NUL.MINGOL"));
-        Entrada("d02b", "diseño", "NUL.", NoEsArchivo("NUL."));
+        // Área 5 (CI #9): la rama (b)/(c) de cada dispositivo la decide el SO al correr (RamaDispositivo)
+        for (int i = 0; i < d01.length; i++)
+            Dispositivo(Entrada("d01" + (char) ('a' + i), "diseño", d01[i][0], NoEncontrado(d01[i][1])), d01[i][1]);
+        // --- d02: NUL (se abre NUL.MINGOL) y NUL. (en este equipo b y c; en el runner del CI, b y b) ---
+        Dispositivo(Entrada("d02a", "diseño", "NUL", NoEncontrado("NUL.MINGOL")), "NUL.MINGOL");
+        Dispositivo(Entrada("d02b", "diseño", "NUL.", NoEsArchivo("NUL.")), "NUL.");
         // --- d03: carpeta carpeta.MINGOL, rama (c) ---
         Entrada("d03", "diseño", "carpeta", NoEsArchivo("carpeta.MINGOL")).carpetas.add("carpeta.MINGOL");
         // --- d04: InvalidPathException, rama (a) con el argumento tal cual ---
@@ -583,7 +602,13 @@ public class PruebasEntrada {
         boolean traza = false;
         for (String l : resto) if (l.startsWith("\tat ") || l.contains("GRAVE") || l.contains("Exception")) traza = true;
         if (traza) dif.add("stderr con traza: " + Primeras(resto, 3));
-        if (!resto.equals(c.stderr)) dif.add("stderr: esperado " + c.stderr + ", obtenido " + Primeras(resto, 4));
+        // Área 5 (CI #9): con un dispositivo, la rama esperada se calcula en la carpeta del hijo, como los motivos
+        List<String> stderrEsperado = c.stderr;
+        if (c.dispositivo != null) {
+            String m = RamaDispositivo(dir.resolve(c.cwd), c.dispositivo, dif);
+            if (m != null) stderrEsperado = L(m);
+        }
+        if (!resto.equals(stderrEsperado)) dif.add("stderr: esperado " + stderrEsperado + ", obtenido " + Primeras(resto, 4));
         if (c.prep) {
             // Área 5 (3.5, U7): resultado de Preparar y <ruta> de DQ2
             String sal = r.stdout.replaceAll("\\R+$", "");
@@ -1648,6 +1673,8 @@ public class PruebasEntrada {
             Caso c = Prep("u7b" + (i + 1), b[i][0], "null");
             c.stderr.add(NoEncontrado(b[i][1]));
             c.rutaDQ2 = b[i][1];
+            // Área 5 (CI #9): CON, AUX, COM1, LPT1 y NUL.txt son dispositivos; su rama la decide el SO
+            if (i >= 2 && i <= 7) Dispositivo(c, b[i][1]);
             l.add(c);
         }
         Caso x09 = Prep("u7b_x09", "SinExt2", "null");
@@ -1664,6 +1691,7 @@ public class PruebasEntrada {
         Caso nul = Prep("u7c_nul", "NUL.", "null");
         nul.stderr.add(NoEsArchivo("NUL."));
         nul.rutaDQ2 = "NUL.";
+        Dispositivo(nul, "NUL."); // área 5 (CI #9): en el runner windows-2022 cae en (b)
         l.add(nul);
         // (d) Lectura que falla: fuente con FileChannel.lock() del arnés (d13)
         Caso d13 = Prep("u7d_d13", "Prog.MINGOL", "null");
