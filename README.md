@@ -31,9 +31,11 @@ java --enable-preview -jar Mingol.jar <Programa>.MINGOL
    ```
 
    Los códigos siguen el esquema 1xx léxico, 2xx sintáctico y 3xx semántico. Se reportan todos los errores de todas las líneas; en cada línea se listan primero los léxicos, después los sintácticos y al final los semánticos. Las instrucciones de ALGOL que MINGOL no soporta generan una advertencia, que no impide la ejecución.
-4. Si no hay errores, copia el fuente a `<Programa>.a68` y lo ejecuta con `a68g` en la misma consola.
+4. Si no hay errores (las advertencias sí se permiten), copia el fuente byte a byte a `<Programa>.a68` en la carpeta desde donde se ejecuta y lo ejecuta con `a68g` en la misma consola. Si hay errores, no genera el `.a68` y borra el que haya quedado de una corrida anterior.
 
-La extensión `.MINGOL` puede omitirse al invocarlo.
+La extensión `.MINGOL` puede omitirse al invocarlo (se distingue sin importar mayúsculas). Si el nombre del archivo no cumple las reglas de identificador o la extensión no es `.MINGOL`, el archivo de errores termina con `ERROR 115: Nombre de archivo inválido [<nombre>].` y el programa no se ejecuta. Si el fuente no existe o no se puede leer, MINGOL lo informa en la consola (`No se encontró el archivo fuente: ...` o `No se pudo leer el archivo fuente: ...`) y no genera nada.
+
+El código de salida es el de `a68g` cuando el programa es válido, y 1 en cualquier otro caso (uso incorrecto, fuente inexistente o ilegible, errores en el programa, `a68g` no encontrado o fallos al escribir las salidas).
 
 ## Requisitos
 
@@ -77,6 +79,7 @@ powershell -ExecutionPolicy Bypass -File tests\ci\ejecutar-pruebas.ps1
 - `PruebasLexico`: el analizador léxico (identificadores, comentarios, constantes, longitud de línea, operadores y palabras reservadas).
 - `PruebasSintaxis`: el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa y comandos desconocidos).
 - `PruebasSemantica`: el analizador semántico (variables y etiquetas definidas, `GOTO` hacia adelante, tipos en la asignación, `CHAR` de un carácter, `FOR` con variable y límites `INT`, `read` y `print`).
+- `PruebasEntrada`: la entrada y la ejecución (nombre y extensión del fuente, archivo inexistente o ilegible, generación del `.a68` y código de salida de `a68g`).
 
 Trabajan siempre en una carpeta temporal y nunca ejecutan el `a68g` real: usan `java.exe` como sustituto.
 
@@ -104,7 +107,7 @@ El flujo de [GitHub Actions](.github/workflows/ci.yml) corre en Windows:
 
 ## Estado
 
-Están hechas las correcciones de los errores críticos, el formato del archivo de errores, el analizador léxico, el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa y comandos desconocidos) y el analizador semántico (variables y etiquetas definidas, `GOTO` a una etiqueta de cualquier parte del programa, tipos en la asignación, `CHAR` de un solo carácter, `FOR` con variable y límites `INT`, y `read`/`print`). Queda pendiente la validación del nombre del archivo de entrada y la condición de ejecución de `a68g`. El programa de ejemplo `proyecto.mingol` ya pasa los análisis léxico, sintáctico y semántico: lo único que impide su ejecución son tres textos de más de 30 caracteres (`ERROR 111`), como exige el requisito de constantes de texto.
+Están hechas las correcciones de los errores críticos, el formato del archivo de errores, el analizador léxico, el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa y comandos desconocidos) y el analizador semántico (variables y etiquetas definidas, `GOTO` a una etiqueta de cualquier parte del programa, tipos en la asignación, `CHAR` de un solo carácter, `FOR` con variable y límites `INT`, y `read`/`print`), además de la entrada y la ejecución (validación del nombre del archivo, `.a68` solo sin errores y código de salida de `a68g`). El programa de ejemplo `proyecto.mingol` ya pasa los análisis léxico, sintáctico y semántico: lo único que impide su ejecución son tres textos de más de 30 caracteres (`ERROR 111`), como exige el requisito de constantes de texto.
 
 ## Créditos
 

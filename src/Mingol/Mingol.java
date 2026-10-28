@@ -24,21 +24,27 @@ import Lexer.MingolToken;
 import Lexer.Token;
 import java.io.BufferedReader;
 import java.io.File; // Separador del PATH en BuscarA68g
+import java.io.FileNotFoundException; // Motivo, nivel 3 (DQ1)
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URISyntaxException; // CarpetaAplicacion
+import java.nio.file.AccessDeniedException; // Motivo, nivel 2 (DQ1)
+import java.nio.file.DirectoryNotEmptyException; // Motivo, nivel 2 (DQ1)
+import java.nio.file.FileAlreadyExistsException; // Motivo, nivel 2 (DQ1)
+import java.nio.file.FileSystemException; // Motivo, nivel 1 (DQ1)
 import java.nio.file.Files; // Comprobar candidatos de a68g
+import java.nio.file.NoSuchFileException; // Motivo, nivel 2 (DQ1)
 import java.nio.file.InvalidPathException; // Rutas inválidas en A68G o el PATH
 import java.nio.file.Path; // Necesario para RutaA68
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption; // CopiarA68 con REPLACE_EXISTING (E10)
 import java.security.CodeSource; // CarpetaAplicacion
 import java.util.ArrayList;
 import java.util.List; // Líneas del fuente y mensajes
 import java.util.Locale; // Minúsculas independientes del idioma en EsScriptPorLotes
 import java.util.Scanner;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+// Sin java.util.logging: main ya no registra trazas (cambio 1, DE1)
 
 public class Mingol {
 
@@ -49,55 +55,126 @@ public class Mingol {
                 System.err.println("Uso: java -jar MINGOL.jar <Programa>.MINGOL");
                 System.exit(1);
             }
-            try {
-                String path = args[0];
-                String parts[] = path.split("\\.");
-                if (parts.length == 1) {
-                    path += ".mingol";
-                }
-                //String path = "proyecto.mingol";
-                if (TestProyecto(path)) {
-                    // Se quitaron rutaArchivo y runtime, que no se usaban
-                    // a68g se invoca sin shell, con el mismo .a68 que escribió TestProyecto
-                    EjecutarA68g(RutaA68(path));
-                }
-            } catch (IOException ex) {
-            Logger.getLogger(Mingol.class.getName()).log(Level.SEVERE, null, ex);
-        }
+            // Único System.exit del flujo normal: 1 o el código literal de a68g (E3, DE1); sin registro de trazas ni corte por puntos
+            System.exit(Compilar(args[0]));
     }
 
+    // Preparar y luego a68g; 1 si MINGOL no deja un .a68 listo (E3, DE1)
+    private static int Compilar(String argumento) {
+        Path a68 = Preparar(argumento);
+        return a68 == null ? 1 : EjecutarA68g(a68.toString());
+    }
+
+    // Bloque de entrada (a)-(d) y 115 (e); devuelve el .a68 o null. Nunca System.exit ni a68g (DE1)
+    // Sin toAbsolutePath/toRealPath sobre el fuente: con a:b.MINGOL lanzaría IOError (DE3)
+    private static Path Preparar(String argumento) {
+        // Ruta efectiva calculada una vez: el mismo String abre el archivo y sale en los avisos (DQ2, DE4)
+        String ruta;
+        Path fuente;
+        try {
+            ruta = RutaEfectiva(argumento);
+            fuente = Paths.get(ruta);
+        } catch (InvalidPathException ex) {
+            // (a) Ruta que Java no acepta: el argumento tal cual y el getMessage() de Java (E19, DQ2)
+            System.err.println("No se pudo leer el archivo fuente: " + argumento + " (ruta inválida: " + ex.getMessage() + ")");
+            return null;
+        }
+        // (b) No existe; CON, AUX, COMn, LPTn, NUL.txt caen aquí sin código especial (E7, DQ4)
+        if (!Files.exists(fuente)) {
+            System.err.println("No se encontró el archivo fuente: " + ruta);
+            return null;
+        }
+        // (c) Existe pero no es un archivo regular: carpeta, NUL. (E18, DQ4)
+        if (!Files.isRegularFile(fuente)) {
+            System.err.println("No se pudo leer el archivo fuente: " + ruta + " (no es un archivo)");
+            return null;
+        }
+        // (d) La lectura falla: motivo por el helper único, sin traza (E7, DQ1)
+        List<String> lineas;
+        try {
+            lineas = LeerFuente(fuente);
+        } catch (IOException ex) {
+            System.err.println("No se pudo leer el archivo fuente: " + ruta + " (" + Motivo(ex) + ")");
+            return null;
+        }
+        // (e) Leído: 115 si el nombre o la extensión no valen; el fuente se analiza igual (E1, E4, E13, E15)
+        String nombre = fuente.getFileName().toString();
+        return Procesar(fuente, lineas, NombreArchivoValido(nombre) ? null : nombre);
+    }
+
+    // Firma y resultado conservados para los arneses: sin 115, el nombre lo valida main (DE2)
+    // El .a68 sigue E5/E6/E10 por Procesar; ya no se escribe con FileWriter antes del análisis (DE8)
     private static boolean TestProyecto(String archivoOriginal) throws IOException{
-        // El fuente se lee completo antes de escribir nada (el lector se cierra aquí)
+        Path fuente = Paths.get(archivoOriginal);
+        // La lectura sigue lanzando IOException como antes
+        return Procesar(fuente, LeerFuente(fuente), null) != null;
+    }
+
+    // Pasos (1)-(3) de E16: -errores.txt, ¿hay ERROR?, borrado o copia del .a68; devuelve el .a68 o null
+    private static Path Procesar(Path fuente, List<String> lineas, String lexema115) {
+        List<Mensaje> mensajes = Analizar(lineas);
+        // 115 sin línea: ArchivoErrores lo pone en el bloque final antes que 307/308 (E1, E13, E20)
+        if (lexema115 != null) {
+            mensajes.add(Mensaje.Error(Mensaje.SIN_LINEA, 115, "Nombre de archivo inválido", lexema115));
+        }
+        // (1) -errores.txt con el nombre tal cual, en la carpeta actual (E2, E14); si falla, aviso sin traza (E16, DE4)
+        String nombreErrores = NombrePrograma(fuente.toString()) + "-errores.txt";
+        boolean escrito = true;
+        try {
+            ArchivoErrores.Escribir(nombreErrores, lineas, mensajes);
+        } catch (IOException ex) {
+            System.err.println("No se pudo escribir el archivo de errores: " + nombreErrores + " (" + Motivo(ex) + ")");
+            escrito = false;
+        }
+        // (2) ¿Algún ERROR? Las advertencias se permiten
+        boolean hayError = false;
+        for (Mensaje m : mensajes) {
+            if (m.EsError()) {
+                hayError = true;
+            }
+        }
+        Path a68 = Paths.get(RutaA68(fuente.toString()));
+        if (hayError) {
+            // Con ERROR se borra el .a68 viejo aunque haya fallado (1) (E6, E17); aviso después del de (1) (DE7)
+            String aviso = BorrarA68Viejo(fuente, a68);
+            if (aviso != null) {
+                System.err.println(aviso);
+            }
+            return null;
+        }
+        // Sin ERROR pero sin -errores.txt: se corta antes de copiar (E16)
+        if (!escrito) {
+            return null;
+        }
+        // (3) Copia byte a byte (E10); si falla, aviso de E17 y null
+        String aviso = CopiarA68(fuente, a68);
+        if (aviso != null) {
+            System.err.println(aviso);
+            return null;
+        }
+        return a68;
+    }
+
+    // Lee el fuente con la misma lectura de siempre (FileReader nativo + readLine), extraída de TestProyecto (decisión 6, DE10)
+    private static List<String> LeerFuente(Path fuente) throws IOException {
         List<String> lineas = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new FileReader(archivoOriginal))) {
-            // Misma lectura que antes (readLine), para copiar el mismo número de líneas
+        try (BufferedReader reader = new BufferedReader(new FileReader(fuente.toFile()))) {
             String line = reader.readLine();
             while (line != null) {
                 lineas.add(line);
                 line = reader.readLine();
             }
         }
+        return lineas;
+    }
 
+    // Lexer, parser y evaluador sobre las líneas unidas con "\n"; extraído de TestProyecto sin cambios (3.5)
+    private static List<Mensaje> Analizar(List<String> lineas) {
         // Fuente con un salto real tras cada línea (arreglo original del EOL)
         StringBuilder source = new StringBuilder();
         for (String line : lineas) {
             source.append(line).append("\n");
         }
-
-        // Nombre del archivo de errores: sin carpetas ni extensión, en la carpeta actual
-        String nombreErrores = NombrePrograma(archivoOriginal) + "-errores.txt";
-
-        // El .a68 se calcula en un único lugar, compartido con main; no se escribe sobre el propio fuente
-        Path fuente = Paths.get(archivoOriginal);
-        Path a68 = Paths.get(RutaA68(archivoOriginal));
-        if (!MismoArchivo(fuente, a68)) {
-            try (FileWriter archivoAlgol = new FileWriter(a68.toString())) {
-                for (String line : lineas) {
-                    archivoAlgol.write(line + "\n");
-                }
-            }
-        }
-
         // Estado del evaluador limpio; parser y evaluador corren siempre (decisión 4)
         Evaluator.Reiniciar();
         Lexer lexer = new Lexer(source.toString());
@@ -105,26 +182,121 @@ public class Mingol {
         Program program = parser.ParseProgram();
         Environment env = new Environment();
         Evaluator.Evaluate(program, env);
-
-        // Mensajes del parser y luego del evaluador, escritos bajo su línea
+        // Mensajes del parser y luego del evaluador; lista nueva y modificable (Procesar agrega el 115)
         List<Mensaje> mensajes = new ArrayList<>(parser.GetMensajes());
         mensajes.addAll(Evaluator.GetMensajes());
-        ArchivoErrores.Escribir(nombreErrores, lineas, mensajes);
+        return mensajes;
+    }
 
-        // Válido si y solo si ningún mensaje es error (las advertencias se permiten)
-        for (Mensaje m : mensajes) {
-            if (m.EsError()) {
-                return false;
+    // Con ERROR se borra el .a68 viejo; devuelve el aviso o null (E6, E21)
+    private static String BorrarA68Viejo(Path fuente, Path a68) {
+        try {
+            // Es el propio fuente: no se toca y sin aviso (E12); va antes de cualquier borrado (DQ3)
+            if (MismoArchivo(fuente, a68)) {
+                return null;
+            }
+            // Una carpeta vacía se borra; con contenido, DirectoryNotEmptyException (DQ3)
+            Files.deleteIfExists(a68);
+            return null;
+        } catch (IOException ex) {
+            // E21; también si MismoArchivo lanza: no se borra nada (DE6)
+            return "No se pudo borrar " + a68.getFileName() + " anterior: " + Motivo(ex);
+        }
+    }
+
+    // Copia byte a byte del fuente al .a68; devuelve el aviso o null (E10, E17)
+    private static String CopiarA68(Path fuente, Path a68) {
+        try {
+            // Nunca sobre el propio fuente (E12); va antes de copiar (DQ3); si MismoArchivo lanza, no se copia (DE6)
+            if (MismoArchivo(fuente, a68)) {
+                return null;
+            }
+            // Una carpeta vacía se reemplaza; con contenido, DirectoryNotEmptyException (DQ3)
+            Files.copy(fuente, a68, StandardCopyOption.REPLACE_EXISTING);
+            return null;
+        } catch (IOException ex) {
+            String aviso = "No se pudo generar " + a68.getFileName() + ": " + Motivo(ex);
+            try {
+                // E17: no dejar un .a68 que no corresponde a este fuente; guardia E12 otra vez (DQ3); "no había nada" cuenta como borrado (DE5)
+                if (!MismoArchivo(fuente, a68)) {
+                    Files.deleteIfExists(a68);
+                }
+                return aviso;
+            } catch (IOException ex2) {
+                return aviso + "; puede quedar un " + a68.getFileName() + " anterior que no corresponde a este fuente";
             }
         }
-        return true;
     }
 
     // Nombre del programa: nombre del archivo sin carpetas ni la última extensión
     private static String NombrePrograma(String ruta) {
         String nombre = Paths.get(ruta).getFileName().toString();
         int punto = nombre.lastIndexOf('.');
-        return (punto > 0) ? nombre.substring(0, punto) : nombre;
+        // punto >= 0: ".MINGOL" da "" y "Punto." da "Punto" (E14)
+        return (punto >= 0) ? nombre.substring(0, punto) : nombre;
+    }
+
+    // Ruta efectiva: agrega ".MINGOL" solo si el nombre del archivo no tiene punto (E8, E15, 1.11)
+    // Mira solo el nombre, no las carpetas (r02); propaga InvalidPathException
+    private static String RutaEfectiva(String argumento) {
+        Path n = Paths.get(argumento).getFileName();
+        if (n != null && n.toString().indexOf('.') < 0) {
+            return argumento + ".MINGOL";
+        }
+        return argumento;
+    }
+
+    // Nombre y extensión según REQ-INPUT-01, sin distinguir mayúsculas (E4, E13); letras solo ASCII (DQ5)
+    private static boolean NombreArchivoValido(String nombre) {
+        // Extensión = tras el último punto (E8); sin punto no hay extensión .mingol
+        int punto = nombre.lastIndexOf('.');
+        if (punto < 0) {
+            return false;
+        }
+        String base = nombre.substring(0, punto);
+        String ext = nombre.substring(punto + 1);
+        // Clase explícita en vez de equalsIgnoreCase, que aceptaría "MİNGOL" (U+0130) (E4)
+        return ext.matches("[Mm][Ii][Nn][Gg][Oo][Ll]")
+                && base.matches("[A-Za-z]([A-Za-z0-9_]{0,18}[A-Za-z0-9])?");
+    }
+
+    // Motivo de un fallo de E/S para los avisos: cascada de 4 niveles, nunca lanza ni da vacío (DQ1)
+    private static String Motivo(IOException ex) {
+        // Nivel 1: texto del sistema, si la excepción lo trae
+        if (ex instanceof FileSystemException fse) {
+            String razon = fse.getReason();
+            if (razon != null && !razon.isEmpty()) {
+                return razon;
+            }
+        }
+        // Nivel 2: texto fijo por tipo
+        if (ex instanceof NoSuchFileException) {
+            return "No existe";
+        }
+        if (ex instanceof AccessDeniedException) {
+            return "Acceso denegado";
+        }
+        if (ex instanceof DirectoryNotEmptyException) {
+            return "La carpeta no está vacía";
+        }
+        if (ex instanceof FileAlreadyExistsException) {
+            return "Ya existe";
+        }
+        String mensaje = ex.getMessage();
+        // Nivel 3: FileNotFoundException "<ruta> (<texto>)"; si la forma no cuadra, nivel 4
+        if (ex instanceof FileNotFoundException && mensaje != null && mensaje.endsWith(")")) {
+            int abre = mensaje.lastIndexOf('(');
+            if (abre >= 0 && abre < mensaje.length() - 2) {
+                return mensaje.substring(abre + 1, mensaje.length() - 1);
+            }
+        }
+        // Nivel 4: getMessage(); si es null o vacío, el nombre simple de la clase
+        if (mensaje != null && !mensaje.isEmpty()) {
+            return mensaje;
+        }
+        String clase = ex.getClass().getSimpleName();
+        // Una clase anónima no tiene nombre simple: el nombre completo mantiene el texto no vacío
+        return clase.isEmpty() ? ex.getClass().getName() : clase;
     }
 
     // Verdadero si el .a68 es el mismo archivo que el fuente (p. ej. un fuente x.a68)
@@ -132,17 +304,14 @@ public class Mingol {
         return Files.exists(a68) && Files.isSameFile(fuente, a68);
     }
     
-    // Ruta del .a68: misma carpeta, nombre sin la última extensión + ".a68" (sin importar mayúsculas)
+    // Ruta del .a68: en la carpeta actual, sin resolveSibling; nombre del programa + ".a68" (E5)
     private static String RutaA68(String ruta) {
-        Path p = Paths.get(ruta);
-        String nombre = p.getFileName().toString();
-        int punto = nombre.lastIndexOf('.');
-        String base = (punto > 0) ? nombre.substring(0, punto) : nombre;
-        return p.resolveSibling(base + ".a68").toString();
+        return NombrePrograma(ruta) + ".a68";
     }
 
     // Ejecuta a68g en esta consola, sin shell: cada argumento va separado y se toma literal
-    private static void EjecutarA68g(String rutaA68) {
+    // Devuelve el código de salida: el literal de a68g o 1 si no se pudo ejecutar (E3, cambio 16)
+    private static int EjecutarA68g(String rutaA68) {
         // A68G se lee una sola vez, para la búsqueda y para el mensaje
         String valorA68G = System.getenv("A68G");
         Path a68g = BuscarA68g(valorA68G, CarpetaAplicacion(), System.getenv("PATH"));
@@ -154,22 +323,25 @@ public class Mingol {
                 mensaje += " A68G apunta a un archivo .bat/.cmd, que no se acepta: debe ser el ejecutable a68g.exe.";
             }
             System.err.println(mensaje);
-            System.exit(1);
+            // Mismo mensaje; el código lo decide main (E3, DE1)
+            return 1;
         }
         // Ruta absoluta: el mismo archivo que escribió TestProyecto, y no se confunde con una opción
         String archivo = Paths.get(rutaA68).toAbsolutePath().toString();
         try {
             // Exactamente dos elementos de comando, misma consola, y se espera a que termine
             Process proceso = new ProcessBuilder(a68g.toString(), archivo).inheritIO().start();
-            proceso.waitFor();
+            // Código literal de a68g, sin normalizar (E3)
+            return proceso.waitFor();
         } catch (IOException ex) {
-            // Mensaje claro sin traza
+            // Mensaje claro sin traza; 1 en vez de System.exit (E3, DE1)
             System.err.println("No se pudo iniciar a68g (" + a68g + "): " + ex.getMessage());
-            System.exit(1);
+            return 1;
         } catch (InterruptedException ex) {
-            // Se conserva el estado de interrupción
+            // Se conserva el estado de interrupción; fallo de MINGOL → 1 (E3)
             Thread.currentThread().interrupt();
             System.err.println("Se interrumpió la espera de a68g.");
+            return 1;
         }
     }
 

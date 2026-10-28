@@ -20,6 +20,9 @@
 //                    (decisión 4) y valor inicial (2.16, 3.11).
 //   main          -> tarea 4.8: Mingol.main en hijos con entorno controlado (A68G = eco java.exe,
 //                    PATH = C:\Windows\System32): t4, e4 y T10 invocan el eco; t3 y t7 no.
+//                    Área 5 (E3): código 1 en los cinco (el eco java.exe sale con 1, t3/t7 por errores).
+//   Área 5: ejemplos suma t14 (\r\n sin salto final); el .a68 va en la carpeta actual, es copia byte a
+//                    byte (Files.mismatch) y no existe si hay errores (E5, E6, E10).
 //
 // Seguridad (R8): cada TestProyecto y cada main corre en un hijo con -Xmx256m, waitFor(10 s) y
 // destroyForcibly. main solo se lanza en el modo main, si existe Mingol.EjecutarA68g, con el entorno
@@ -112,6 +115,7 @@ public class PruebasArchivoErrores {
         String argumento;      // lo que recibiría main (se normaliza como main)
         String[] lineas;
         boolean saltoFinal;
+        boolean crlf;          // Área 5 (E10): líneas separadas con \r\n en lugar de \n (t14)
         String nombreErrores;  // <archivo sin carpetas ni extensión>-errores.txt, en la carpeta actual
         String rutaA68;        // donde la deja RutaA68
         boolean generado;      // true si sale del generador (tarea 2); los esperados de Examples no aplican
@@ -136,7 +140,9 @@ public class PruebasArchivoErrores {
         }
 
         byte[] bytes() {
-            return (String.join("\n", lineas) + (saltoFinal ? "\n" : "")).getBytes(StandardCharsets.US_ASCII);
+            // Área 5 (E10): con crlf el separador y el salto final son \r\n
+            String sep = crlf ? "\r\n" : "\n";
+            return (String.join(sep, lineas) + (saltoFinal ? sep : "")).getBytes(StandardCharsets.US_ASCII);
         }
 
         // Archivo esperado completo: copia numerada con un espacio y los mensajes con 8 espacios
@@ -211,9 +217,10 @@ public class PruebasArchivoErrores {
         // t10: extensión en mayúsculas; válido con la sintaxis corregida (asignación sin ";" antes de END)
         l.add(Nuevo("t10", "T10.MINGOL", "T10.MINGOL", "T10-errores.txt", "T10.a68", true,
                 "BEGIN", "INT a;", "a := 1", "END"));
-        // t11: carpeta con punto; el -errores.txt va en la carpeta actual, el .a68 junto al fuente
+        // t11: carpeta con punto; el -errores.txt va en la carpeta actual
+        // Área 5 (E5): el .a68 también va en la carpeta actual (antes sub.dir\t11.a68)
         l.add(Nuevo("t11", "sub.dir" + File.separator + "t11.mingol", "sub.dir" + File.separator + "t11.mingol",
-                "t11-errores.txt", "sub.dir" + File.separator + "t11.a68", true,
+                "t11-errores.txt", "t11.a68", true,
                 "BEGIN", "x = 3;", "END")
                 .bajo(2, E205("x")));
         // t12: invocado sin extensión (se normaliza como main a t12.mingol); "y = 3;" da 205 (sintaxis corregida)
@@ -236,6 +243,14 @@ public class PruebasArchivoErrores {
                 .bajo(4, E206("END"))
                 .bajo(5, "ERROR 204: Se esperaba un token de tipo FI pero se obtuvo END [END]."));
         return l;
+    }
+
+    // Área 5 (E10): t14 válido con \r\n y sin salto final; el .a68 debe ser copia byte a byte
+    private static Caso T14() {
+        Caso c = Nuevo("t14", "t14.mingol", "t14.mingol", "t14-errores.txt", "t14.a68", false,
+                "BEGIN", "INT a;", "print ( (a) )", "END");
+        c.crlf = true;
+        return c;
     }
 
     // t1, línea 3 ("INT a := 1.5;"): área 3 (sintaxis corregida, decisión 3): un solo 210 en lugar del 201 + 203
@@ -305,6 +320,8 @@ public class PruebasArchivoErrores {
             System.exit(2);
         }
         List<Caso> casos = Casos();
+        // Área 5 (E10): t14 solo en ejemplos (capturar/preservacion sin cambios)
+        casos.add(T14());
         // Escribe todos los fuentes antes de lanzar hijos (causa 7 usa c6 y t4)
         for (Caso c : casos) {
             Path p = carpeta.resolve(c.archivo);
@@ -354,15 +371,19 @@ public class PruebasArchivoErrores {
         boolean fuenteIntacto = Files.exists(fuente) && Arrays.equals(copia, Files.readAllBytes(fuente));
         if (!fuenteIntacto) dif.add("el fuente cambió (" + (Files.exists(fuente) ? Files.size(fuente) : -1) + " bytes)");
 
-        // .a68 donde lo pone RutaA68, copia del fuente (cada línea + \n)
+        // Área 5 (E5, E6, E10): .a68 en la carpeta actual; si es válido, copia byte a byte del fuente
+        // (Files.mismatch); con errores NO debe existir. Se borró la comparación línea por línea
         boolean a68Ok = false;
-        if (!Files.exists(a68)) {
-            dif.add("no existe " + c.rutaA68);
+        if (c.validoEsperado()) {
+            if (!Files.exists(a68)) {
+                dif.add("no existe " + c.rutaA68);
+            } else {
+                a68Ok = Files.exists(fuente) && Files.mismatch(fuente, a68) == -1L;
+                if (!a68Ok) dif.add(c.rutaA68 + " no es copia byte a byte del fuente");
+            }
         } else {
-            StringBuilder sb = new StringBuilder();
-            for (String l : c.lineas) sb.append(l).append("\n");
-            a68Ok = new String(Files.readAllBytes(a68), StandardCharsets.US_ASCII).equals(sb.toString());
-            if (!a68Ok) dif.add(c.rutaA68 + " no es copia del fuente");
+            a68Ok = !Files.exists(a68);
+            if (!a68Ok) dif.add("existe " + c.rutaA68 + " con un programa con errores");
         }
 
         // (h) validez = ausencia de ERROR
@@ -397,7 +418,8 @@ public class PruebasArchivoErrores {
 
         // t10: debe fallar SOLO por el separador; si no, regresión de críticos
         if (c.id.equals("t10")) {
-            // Fuente alterado, sin T10.a68 o sin copia completa: lo había resuelto críticos
+            // Fuente alterado, sin T10.a68 o sin copia exacta: lo había resuelto críticos
+            // Área 5: a68Ok ya usa la nueva condición (Files.mismatch, solo si es válido)
             if (!fuenteIntacto || !a68Ok || !Files.exists(errores)) {
                 System.out.println("AVISO: t10 con el fuente alterado o sin T10.a68/T10-errores.txt (regresión de mingol-criticos-fix)");
             } else if (!soloSeparador && !dif.isEmpty()) {
@@ -1808,8 +1830,9 @@ public class PruebasArchivoErrores {
         String[][] nombres = {
             {"t1.mingol", "t1", "t1.a68"},
             {"T10.MINGOL", "T10", "T10.a68"},
-            {"sub.dir\\t11.mingol", "t11", "sub.dir\\t11.a68"},
-            {"C:\\x.y\\z.Mingol", "z", "C:\\x.y\\z.a68"},
+            // Área 5 (E5): RutaA68 es relativa a la carpeta actual, sin la carpeta del fuente
+            {"sub.dir\\t11.mingol", "t11", "t11.a68"},
+            {"C:\\x.y\\z.Mingol", "z", "z.a68"},
             {"t12.mingol", "t12", "t12.a68"},
             {"x.a68", "x", "x.a68"},
             {"X.A68", "X", "X.a68"},
@@ -1823,13 +1846,15 @@ public class PruebasArchivoErrores {
         Class<?>[] pp = {Path.class, Path.class};
         Path x = u.resolve("x.a68");
         Files.write(x, "BEGIN\nEND\n".getBytes(StandardCharsets.US_ASCII));
-        Path rutaX = Paths.get((String) Llamar("RutaA68", s, x.toString()));
+        // Área 5 (E5): RutaA68 ya no trae la carpeta; se resuelve contra la carpeta u
+        Path rutaX = u.resolve((String) Llamar("RutaA68", s, x.toString()));
         Igual("MismoArchivo(x.a68, RutaA68(x.a68)) existente", true, Llamar("MismoArchivo", pp, x, rutaX));
         // Windows no distingue mayúsculas: X.A68 es el mismo archivo
         Igual("MismoArchivo(X.A68, x.a68)", true, Llamar("MismoArchivo", pp, u.resolve("X.A68"), x));
         Path t1 = u.resolve("t1.mingol");
         Files.write(t1, "BEGIN\nEND\n".getBytes(StandardCharsets.US_ASCII));
-        Path t1a68 = Paths.get((String) Llamar("RutaA68", s, t1.toString()));
+        // Área 5 (E5): se resuelve contra la carpeta u (no la carpeta actual)
+        Path t1a68 = u.resolve((String) Llamar("RutaA68", s, t1.toString()));
         Igual("MismoArchivo(t1.mingol, t1.a68) sin t1.a68", false, Llamar("MismoArchivo", pp, t1, t1a68));
         Files.write(t1a68, "BEGIN\nEND\n".getBytes(StandardCharsets.US_ASCII));
         Igual("MismoArchivo(t1.mingol, t1.a68) con t1.a68 existente", false, Llamar("MismoArchivo", pp, t1, t1a68));
@@ -2331,7 +2356,8 @@ public class PruebasArchivoErrores {
             ResultadoHijo r = LanzarMain(Arrays.asList("-cp", clases.toString(), "Mingol.Mingol", c.argumento),
                     dirMain, logs, "main-" + c.id, eco.toString());
             if (!r.termino) d.add("main no terminó en " + LIMITE_SEGUNDOS + " s (destroyForcibly)");
-            else if (r.codigo != 0) d.add("código de salida de main " + r.codigo);
+            // Área 5 (E3): 1 en los cinco casos (el eco java.exe sale con 1; t3/t7 por los errores)
+            else if (r.codigo != 1) d.add("código de salida de main " + r.codigo + " (se esperaba 1)");
             String traza = PrimeraLineaCon(r.todo(), "\tat ");
             if (traza != null) d.add("traza: " + traza.trim());
 
@@ -2360,7 +2386,13 @@ public class PruebasArchivoErrores {
             }
             Path fuente = dirMain.resolve(c.archivo);
             if (!Files.exists(fuente) || !Arrays.equals(bytes, Files.readAllBytes(fuente))) d.add("el fuente cambió");
-            if (!Files.exists(a68)) d.add("no existe " + c.rutaA68);
+            // Área 5 (E6, E10): válido → .a68 en la carpeta del caso, copia byte a byte; con errores, sin .a68
+            if (esperaEco) {
+                if (!Files.exists(a68)) d.add("no existe " + c.rutaA68);
+                else if (!Files.exists(fuente) || Files.mismatch(fuente, a68) != -1L) d.add(c.rutaA68 + " no es copia byte a byte del fuente");
+            } else if (Files.exists(a68)) {
+                d.add("existe " + c.rutaA68 + " con un programa con errores");
+            }
             // Ningún .bat/.cmd en la carpeta del caso; el eco no sigue vivo
             for (String n : ArchivosRec(dirMain)) {
                 String low = n.toLowerCase(java.util.Locale.ROOT);

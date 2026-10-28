@@ -15,6 +15,8 @@
 //                    .bat/.cmd), EsScriptPorLotes, CarpetaAplicacion y el parser de e2, e3, e7, e8, e9.
 //   arreglo       -> tarea 3.6: Fix Checking con generadores (programas defectuosos y nombres, semillas 1..200).
 //   main          -> tarea 3.6: los 9 casos de main en hijos con entorno controlado (A68G y PATH).
+//                    Área 5: los nombres inválidos de (2) dan 115; (2b) prueba la inyección en la
+//                    carpeta; el código esperado es el del eco java.exe (1) o 1 por errores (E3).
 //   hijoparser <caso> -> interno de unitarias: solo lexer + parser de <caso>.mingol.
 //
 // Seguridad (R7): Mingol.main con un programa válido solo se llama en el modo main, en un hijo con
@@ -1418,8 +1420,9 @@ public class PruebasCriticos {
     private static void UnitariasRutaA68() {
         String[][] casos = {
             {"t1.mingol", "t1.a68"}, {"T10.MINGOL", "T10.a68"}, {"x.Mingol", "x.a68"},
-            {"mingolito.mingol", "mingolito.a68"}, {"sub.dir\\t11.mingol", "sub.dir\\t11.a68"},
-            {"C:\\x.y\\z.Mingol", "C:\\x.y\\z.a68"}, {"mi prog.mingol", "mi prog.a68"},
+            // Área 5 (E5): el .a68 va en la carpeta actual, sin la carpeta del fuente
+            {"mingolito.mingol", "mingolito.a68"}, {"sub.dir\\t11.mingol", "t11.a68"},
+            {"C:\\x.y\\z.Mingol", "z.a68"}, {"mi prog.mingol", "mi prog.a68"},
             {"a&b.mingol", "a&b.a68"}, {"t12", "t12.a68"}};
         for (String[] c : casos) {
             try {
@@ -1903,15 +1906,41 @@ public class PruebasCriticos {
             Path a68 = dificil.resolve(SinUltimaExtension(nombre) + ".a68").toAbsolutePath();
             ResultadoHijo r = LanzarMain(ConClases(clases, nombre), dificil, "main-eco-" + i, Entorno(eco, system32));
             List<String> d = new ArrayList<>();
-            ChequearSalida(r, 0, d, false);
-            ChequearEco(r, a68, d);
-            if (!Files.exists(a68)) d.add("no existe " + a68);
-            else if (!new String(Files.readAllBytes(a68), StandardCharsets.US_ASCII).equals(CopiaEsperada(e1))) d.add(a68.getFileName() + " no es copia del fuente");
-            if (nombre.equals("mingolito.mingol") && Files.exists(dificil.resolve("a68ito.a68"))) d.add("se escribió a68ito.a68");
+            // Área 5 (E1, REQ-INPUT-01): solo mingolito.mingol es un nombre válido
+            boolean valido = nombre.equals("mingolito.mingol");
+            if (valido) {
+                // Área 5 (E3, E10): código 1 (el del eco java.exe) y .a68 copia byte a byte
+                ChequearSalida(r, 1, d, false);
+                ChequearEco(r, a68, d);
+                if (!Files.exists(a68)) d.add("no existe " + a68);
+                else if (Files.mismatch(dificil.resolve(nombre), a68) != -1L) d.add(a68.getFileName() + " no es copia byte a byte del fuente");
+                if (Files.exists(dificil.resolve("a68ito.a68"))) d.add("se escribió a68ito.a68");
+            } else {
+                // Área 5 (E1, E6): 115, código 1, sin eco ni .a68
+                ChequearSalida(r, 1, d, true);
+                if (r.stderr.contains(ECO_MARCA)) d.add("se invocó el eco con un nombre inválido");
+                if (Files.exists(a68)) d.add("existe " + a68 + " con un nombre inválido");
+                ChequearErrores115(dificil.resolve(SinUltimaExtension(nombre) + "-errores.txt"), e1, nombre, d);
+            }
             SinInyectado(d, dificil, base, repo, Paths.get("").toAbsolutePath());
             // main esperó: el eco ya escribió y no queda vivo ningún proceso con esa ruta
             if (ProcesosVivosCon(a68.toString()) > 0) d.add("queda un proceso vivo con " + a68);
-            Registrar("main (2) eco con '" + nombre + "'", d, r);
+            Registrar("main (2) " + (valido ? "eco con '" : "115 con '") + nombre + "'", d, r);
+        }
+
+        // (2b) Área 5: la cobertura de inyección pasa a la carpeta, que llega a a68g en la ruta absoluta
+        String[] carpetas = {"mi prog", "a&mkdir INYECTADO&b", "a^b", "p%PATH%(1)"};
+        for (int i = 0; i < carpetas.length; i++) {
+            Path dir = Files.createDirectories(dificil.resolve(carpetas[i]));
+            Escribir(dir.resolve("prog.mingol"), e1, CON_SALTO_FINAL.get("e1"));
+            Path a68 = dir.resolve("prog.a68").toAbsolutePath();
+            ResultadoHijo r = LanzarMain(ConClases(clases, "prog.mingol"), dir, "main-eco-carpeta-" + i, Entorno(eco, system32));
+            List<String> d = new ArrayList<>();
+            ChequearSalida(r, 1, d, false);
+            ChequearEco(r, a68, d);
+            SinInyectado(d, dir, dificil, base, repo, Paths.get("").toAbsolutePath());
+            if (ProcesosVivosCon(a68.toString()) > 0) d.add("queda un proceso vivo con " + a68);
+            Registrar("main (2b) eco con la carpeta '" + carpetas[i] + "'", d, r);
         }
 
         // (3) Solo advertencias (e4): se invoca el eco
@@ -1920,7 +1949,8 @@ public class PruebasCriticos {
             Escribir(dir.resolve("e4.mingol"), PROGRAMAS.get("e4"), CON_SALTO_FINAL.get("e4"));
             ResultadoHijo r = LanzarMain(ConClases(clases, "e4.mingol"), dir, "main-advertencias", Entorno(eco, system32));
             List<String> d = new ArrayList<>();
-            ChequearSalida(r, 0, d, false);
+            // Área 5 (E3): el código es el del eco java.exe (1)
+            ChequearSalida(r, 1, d, false);
             ChequearEco(r, dir.resolve("e4.a68").toAbsolutePath(), d);
             Registrar("main (3) solo advertencias (e4) invoca el eco", d, r);
         }
@@ -1931,9 +1961,12 @@ public class PruebasCriticos {
             Escribir(dir.resolve("e5.mingol"), PROGRAMAS.get("e5"), CON_SALTO_FINAL.get("e5"));
             ResultadoHijo r = LanzarMain(ConClases(clases, "e5.mingol"), dir, "main-errores", Entorno(eco, system32));
             List<String> d = new ArrayList<>();
-            ChequearSalida(r, 0, d, true);
+            // Área 5 (E3): con errores, MINGOL sale con 1
+            ChequearSalida(r, 1, d, true);
             // Marca del eco independiente del idioma
             if (r.stderr.contains(ECO_MARCA)) d.add("se invocó el eco con un programa con errores");
+            // Área 5 (E6, REQ-EXEC-01): con errores no queda .a68
+            if (Files.exists(dir.resolve("e5.a68"))) d.add("existe e5.a68 con un programa con errores");
             if (!Files.exists(dir.resolve("e5-errores.txt"))) d.add("no se escribió e5-errores.txt");
             Registrar("main (4) con errores (e5) no invoca nada", d, r);
         }
@@ -2124,6 +2157,20 @@ public class PruebasCriticos {
         } else if (!recibidos.get(0).equals(a68.toString())) {
             d.add("argumento recibido [" + recibidos.get(0) + "], esperado [" + a68 + "]");
         }
+    }
+
+    // Área 5 (E1, E13): -errores.txt = copia numerada y, al final, solo el 115 con el nombre del archivo
+    private static void ChequearErrores115(Path errores, String[] lineas, String nombre, List<String> d) throws IOException {
+        if (!Files.exists(errores)) {
+            d.add("no existe " + errores.getFileName());
+            return;
+        }
+        List<String> esperado = new ArrayList<>();
+        for (int i = 0; i < lineas.length; i++) esperado.add(String.format("%05d", i + 1) + " " + lineas[i]);
+        esperado.add("        ERROR 115: Nombre de archivo inválido [" + nombre + "].");
+        // TestProyecto escribe en la codificación nativa (Cp1252): se lee con ISO-8859-1
+        List<String> real = Files.readAllLines(errores, StandardCharsets.ISO_8859_1);
+        if (!real.equals(esperado)) d.add(errores.getFileName() + " distinto: " + real + " (se esperaba " + esperado + ")");
     }
 
     // Ninguna carpeta INYECTADO en las carpetas indicadas

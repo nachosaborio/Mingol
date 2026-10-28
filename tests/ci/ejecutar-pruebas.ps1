@@ -26,7 +26,8 @@ New-Item -ItemType Directory -Force $arnes, $logs | Out-Null
 
 # Compila los arneses contra build\classes
 # Área 2: se suma PruebasLexico; área 3: se suma PruebasSintaxis; área 4: se suma PruebasSemantica
-$fuentes = "RunTestProyecto", "PruebasArchivoErrores", "PruebasCriticos", "PruebasLexico", "PruebasSintaxis", "PruebasSemantica" |
+# Área 5 (entrada y ejecución): se suma PruebasEntrada
+$fuentes = "RunTestProyecto", "PruebasArchivoErrores", "PruebasCriticos", "PruebasLexico", "PruebasSintaxis", "PruebasSemantica", "PruebasEntrada" |
     ForEach-Object { Join-Path $Repo "tests\arneses\$_.java" }
 & javac -encoding UTF-8 -nowarn -cp $clases -d $arnes @fuentes
 if ($LASTEXITCODE -ne 0) { throw "No compilaron los arneses." }
@@ -79,6 +80,8 @@ $lexico = Join-Path $env:TEMP "mingol-lexico"
 $sintaxis = Join-Path $env:TEMP "mingol-sintaxis-arnes"
 # Carpeta de trabajo de PruebasSemantica (área 4)
 $semantica = Join-Path $env:TEMP "mingol-semantica-arnes"
+# Carpeta de trabajo de PruebasEntrada (área 5)
+$entrada = Join-Path $env:TEMP "mingol-entrada-arnes"
 
 # Área 1 (archivo de errores) y regresión de críticos. Sin 'preservacion': necesita una captura del código viejo
 foreach ($modo in "ejemplos", "unitarias", "propiedades", "main") {
@@ -99,6 +102,10 @@ foreach ($modo in "unitarias", "propiedades") {
 foreach ($modo in "unitarias", "propiedades") {
     $resultados += Correr "PruebasSemantica" $modo $semantica $false
 }
+# Área 5 (entrada y ejecución). Sin 'exploracion' ni 'capturar'/'preservacion': dependen del jar viejo de dist\ y de su captura local
+foreach ($modo in "unitarias", "main") {
+    $resultados += Correr "PruebasEntrada" $modo $entrada $false
+}
 # Segunda pasada con aserciones (NetBeans ejecuta con -ea)
 if (-not $SinEa) {
     foreach ($modo in "ejemplos", "unitarias") {
@@ -111,6 +118,8 @@ if (-not $SinEa) {
     $resultados += Correr "PruebasSintaxis" "unitarias" $sintaxis $true
     # Área 4 con aserciones
     $resultados += Correr "PruebasSemantica" "unitarias" $semantica $true
+    # Área 5 (entrada y ejecución) con aserciones
+    $resultados += Correr "PruebasEntrada" "unitarias" $entrada $true
 }
 
 $fallidos = @($resultados | Where-Object { $_.Codigo -ne 0 })
