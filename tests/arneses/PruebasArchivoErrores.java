@@ -1152,6 +1152,11 @@ public class PruebasArchivoErrores {
             String var = resto.replaceFirst(" no es un (INT|REAL|STRING)$", "");
             String tipo = resto.replaceFirst("^.* no es un ", "");
             if (m[4] == null || !m[4].contains("tipo " + tipo + " de la variable " + var)) return "201 con texto [" + m[4] + "]";
+        } else if (nuevo.equals("202") && resto.endsWith(" debe ir solo en su línea")) {
+            // Pendiente 2 (P1–P4): "<cierre> debe ir solo en su línea", con el cierre como lexema
+            if (m[4] == null || !m[4].equals(resto)) return "202 con texto [" + m[4] + "] y no [" + resto + "]";
+            String cierre = resto.substring(0, resto.indexOf(' '));
+            if (!cierre.equals(m[3])) return "202 con lexema [" + m[3] + "] y no [" + cierre + "]";
         } else if (nuevo.equals("202")) {
             String token = resto.replaceFirst("^.*luego del token ", "");
             if (m[4] == null || !m[4].endsWith("después de " + token)) return "202 con texto [" + m[4] + "]";

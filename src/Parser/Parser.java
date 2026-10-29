@@ -69,6 +69,11 @@ public class Parser {
     // Bloques IF / FOR abiertos (214/215 en 3.6)
     private int ifsAbiertos = 0;
     private int forsAbiertos = 0;
+    // Pendiente 2 (DC1): línea física del último THEN/DO que dio el 202 de S9
+    // (las líneas solo crecen: no hace falta reiniciarla)
+    private int lineaS9 = -1;
+    // Pendiente 2 (P4): ELSE que llegó pegado a un comando (camino nuevo)
+    private Token elsePegado = null;
     private ArrayList<String> errors;
     // Mensajes estructurados, uno por cada cadena de 'errors' y en el mismo orden
     private ArrayList<Mensaje> mensajes;
@@ -242,6 +247,12 @@ public class Parser {
         if (tipo == MingolToken.SEMICOLON) {
             Token puntoYComa = currentToken;
             AdvanceToken();
+            // Pendiente 2 (P1): cierre que cierra tras el ';' → C(x), sin saltar la
+            // línea y antes del 202 SEMICOLON y del 206
+            if (EsCierreQueCierra(currentToken)) {
+                CierrePegado();
+                return;
+            }
             if (currentToken.getTokenType() != MingolToken.EOL
                     && currentToken.getTokenType() != MingolToken.EOF) {
                 // Sobrante después del ';': un 202 con el primero y se salta la línea
@@ -268,7 +279,11 @@ public class Parser {
             return;
         }
         if (EsCierre(currentToken)) {
-            // Cierre en la misma línea: el comando termina sin ';' (S9)
+            // Cierre en la misma línea: el comando termina sin ';'. Pendiente 2 (P2):
+            // si cierra algo, C(x) (salvo en la línea de S9, DC1); si no, queda para el 213 (DC3)
+            if (EsCierreQueCierra(currentToken)) {
+                CierrePegado();
+            }
             return;
         }
         // Cualquier otro token: 204 SEMICOLON con ese token y resincronización
@@ -285,9 +300,48 @@ public class Parser {
                 && !EsCierre(currentToken)) {
             AvanzarEnComando();
         }
+        // Pendiente 2 (DC2): un cierre que cierra, al detenerse o justo tras el ';',
+        // va por el camino nuevo en lugar de perderse
+        if (EsCierreQueCierra(currentToken)) {
+            CierrePegado();
+            return;
+        }
         if (currentToken.getTokenType() == MingolToken.SEMICOLON) {
             AdvanceToken();
+            if (EsCierreQueCierra(currentToken)) {
+                CierrePegado();
+                return;
+            }
             SaltarLineaFisica();
+        }
+    }
+
+    // Pendiente 2 (DC3): END, o FI/OD/ELSE que cierra (o continúa) un bloque abierto
+    private boolean EsCierreQueCierra(Token t) {
+        return t.getTokenType() == MingolToken.END || (EsCierre(t) && CierraAlgunBloque(t));
+    }
+
+    // Pendiente 2 (P1–P4): único camino del cierre pegado a un comando. 202
+    // "<cierre> debe ir solo en su línea" salvo en la línea de S9 (DC1); no avanza:
+    // el efecto lo aplican ParseBlock/CerrarBloque/ParseIfComando/ParseComando
+    private void CierrePegado() {
+        MingolToken tipo = currentToken.getTokenType();
+        if (currentToken.getLine() != lineaS9) {
+            String texto = tipo + " debe ir solo en su línea";
+            ErrorSintactico(202, texto, texto, currentToken);
+        }
+        if (tipo == MingolToken.ELSE) {
+            elsePegado = currentToken;
+        }
+    }
+
+    // Pendiente 2 (DC4): tras un ELSE pegado, un ';' da el 202 "después de ELSE [;]"
+    // de hoy y se descarta; lo demás de la línea es la rama else, sin otro 202 (P4)
+    private void SeguirTrasElsePegado() {
+        AdvanceToken();
+        if (currentToken.getTokenType() == MingolToken.SEMICOLON) {
+            Error202(MingolToken.ELSE, currentToken);
+            AdvanceToken();
         }
     }
 
@@ -340,16 +394,20 @@ public class Parser {
     // descarta; otro sobrante da 202 con el primero, pero NO se salta: es el
     // comienzo del cuerpo. Un solo 202 por cabecera
     private void FinDeCabecera(MingolToken palabra) {
+        // Pendiente 2 (DC1): línea del THEN/DO, para marcarla si da el 202 de S9
+        int lineaCabecera = currentToken.getLine();
         AdvanceToken();
         boolean reportado = false;
         if (currentToken.getTokenType() == MingolToken.SEMICOLON) {
             Error202(palabra, currentToken);
             reportado = true;
+            lineaS9 = lineaCabecera;
             AdvanceToken();
         }
         if (!reportado && currentToken.getTokenType() != MingolToken.EOL
                 && currentToken.getTokenType() != MingolToken.EOF) {
             Error202(palabra, currentToken);
+            lineaS9 = lineaCabecera;
         }
     }
 
@@ -652,7 +710,13 @@ public class Parser {
             if (comandosDelUltimoBloque == 0) {
                 ErrorSintactico(216, "Bloque sin comandos antes de ELSE", currentToken);
             }
-            NadaMasEnLaLinea(MingolToken.ELSE);
+            if (currentToken == elsePegado) {
+                // Pendiente 2 (P4): ELSE pegado a un comando; lo que sigue es la rama else
+                elsePegado = null;
+                SeguirTrasElsePegado();
+            } else {
+                NadaMasEnLaLinea(MingolToken.ELSE);
+            }
             nodo.setAlternative(ParseBlock(MingolToken.IF, MingolToken.FI));
         }
         CerrarBloque(MingolToken.FI);
@@ -753,6 +817,11 @@ public class Parser {
             MingolToken tipo = currentToken.getTokenType();
             if (tipo != MingolToken.SEMICOLON && tipo != MingolToken.EOL && tipo != MingolToken.EOF
                     && currentToken.getLine() == tokenCierre.getLine()) {
+                // Pendiente 2 (DC6): otro cierre que cierra tras el FI/OD → C(x), sin saltar
+                if (EsCierreQueCierra(currentToken)) {
+                    CierrePegado();
+                    return;
+                }
                 Error202(cierre, currentToken);
                 SaltarLineaFisica();
                 return;

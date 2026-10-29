@@ -16,11 +16,17 @@
 //   hijocap <archivo> -> interno: captura de un caso, en su carpeta.
 //   unitarias         -> tarea 3.9: un caso por cláusula 2.1–2.23 (mensaje exacto en el -errores.txt y
 //                        cadena de GetErrors()), casos obligatorios, bordes de fin de comando, L4, AST,
-//                        evaluador y la copia de proyecto.mingol.
+//                        evaluador y la copia de proyecto.mingol. Desde el pendiente 2 (tarea 3.4)
+//                        suma también los casos del modo cierres (k01–k30 y q01–q09).
 //   propiedades       -> tarea 3.9: 300 semillas por familia (válidos, una sola falta, dominio de
 //                        preservación contra el oráculo de la tarea 2) y validez con TestProyecto en
-//                        las primeras 50 de cada familia.
+//                        las primeras 50 de cada familia. Desde el pendiente 2 (tarea 3.4) suma la
+//                        familia cierres-prop (300 programas).
 //   hijolote <lista>  -> interno: analiza en un hijo (R8) un lote de fuentes y deja un .dump por fuente.
+//   cierres           -> pendiente 2 (P1–P4): k01–k30 (grupo bug, archivo exacto) y la propiedad
+//                        generada cierres-prop (300 programas, semilla fija). Fallaba en df34c72;
+//                        pasa tras el arreglo.
+//                        Grupo pres (q01–q09, Property 2): debe PASAR antes y después del arreglo.
 //
 // Solo usa API presente antes y después del arreglo; los nodos nuevos (Declaracion, Asignacion,
 // Secuencia) se miran por reflexión, para que el arnés compile también contra 24f9001.
@@ -99,7 +105,7 @@ public class PruebasSintaxis {
     public static void main(String[] args) throws Exception {
         if (args.length == 0) {
             System.err.println("Uso: PruebasSintaxis exploracion | capturar [--sobrescribir] | preservacion | unitarias"
-                    + " | propiedades | hijotp <archivo> | hijocap <archivo> | hijolote <lista>");
+                    + " | propiedades | cierres | hijotp <archivo> | hijocap <archivo> | hijolote <lista>");
             System.exit(2);
         }
         switch (args[0]) {
@@ -129,6 +135,10 @@ public class PruebasSintaxis {
             case "hijolote":
                 HijoLote(args[1]);
                 break;
+            // Pendiente 2 (P1–P4): exploración de los cierres en la línea de un comando
+            case "cierres":
+                Cierres();
+                break;
             default:
                 System.err.println("Modo desconocido: " + args[0]);
                 System.exit(2);
@@ -152,6 +162,8 @@ public class PruebasSintaxis {
     private static String E103(String lex) { return Err(103, "Identificador con mayúsculas", lex); }
     private static String E108(String lex) { return Err(108, "Constante entera fuera de rango", lex); }
     private static String E202(String despues, String lex) { return Err(202, "No puede haber nada en la línea después de " + despues, lex); }
+    // Pendiente 2 (P1–P4): cierre en la línea de un comando
+    private static String E202Cierre(String x) { return Err(202, x + " debe ir solo en su línea", x); }
     private static String E204(String esperado, String obtenido, String lex) {
         return Err(204, "Se esperaba un token de tipo " + esperado + " pero se obtuvo " + obtenido, lex);
     }
@@ -1367,6 +1379,8 @@ public class PruebasSintaxis {
             case "110": return "\tLinea " + linea + " Error 110: Constante real fuera de rango: " + lex;
             case "102": return null;
             case "202": {
+                // Pendiente 2 (P1–P4): la cadena del cierre pegado repite el texto del Mensaje
+                if (texto.endsWith(" debe ir solo en su línea")) return "\tLinea " + linea + " Error 202: " + texto;
                 String pre = "No puede haber nada en la línea después de ";
                 String x = texto.startsWith(pre) ? texto.substring(pre.length()) : "?" + texto;
                 return "\tLinea " + linea + " Error 202: no puede haber nada en la línea luego del token " + x;
@@ -1580,8 +1594,10 @@ public class PruebasSintaxis {
                 .m(4, E216("ELSE")).m(8, E216("OD")).m(12, E216("FI")).m(14, E214()).m(19, E215()));
 
         // Bordes del fin de comando
+        // Pendiente 2 (P2): el cierre pegado cierra su bloque y da un 202 (inválido)
         c.add(U("bordes", "ub_mismalinea", "BEGIN", "INT a;", "IF ( a > 0 ) THEN", "print ( newline ) FI;",
                 "FOR a FROM 1 BY 1 TO 2 DO", "SKIP OD;", "SKIP", "END")
+                .m(4, E202Cierre("FI")).m(6, E202Cierre("OD"))
                 .ast("If.consecuencia", "1").ast("For.comandos", "1"));
         c.add(U("bordes", "ub_vacias", "BEGIN", "INT a;", "a := 1", "", "# nota #", "+ 2;", "IF ( a >", "CO c CO", "0 ) THEN",
                 "SKIP", "FI", "END")
@@ -1638,7 +1654,16 @@ public class PruebasSintaxis {
         Path trabajo = base.resolve("unitarias");
         BorrarArbol(trabajo);
         Files.createDirectories(trabajo);
-        List<Caso> casos = CasosUnitarios();
+        ComprobarCasos(trabajo, CasosUnitarios(), "u");
+        // Pendiente 2 (tarea 3.4): k01–k30 y q01–q09 también en CI
+        ComprobarCasos(trabajo, CasosCierres(), "k");
+        // Meta (2.24): copia de proyecto.mingol en la subcarpeta proyecto, TestProyecto en un hijo
+        Proyecto(base);
+        ResumenSimple("unitarias");
+    }
+
+    // Pendiente 2 (P1–P4): motor de unitarias extraído sin cambios para que lo use también el modo cierres
+    private static void ComprobarCasos(Path trabajo, List<Caso> casos, String nombreLote) throws Exception {
         List<String> archivos = new ArrayList<>();
         for (Caso c : casos) {
             String a = c.id + ".mingol";
@@ -1646,7 +1671,7 @@ public class PruebasSintaxis {
             archivos.add(a);
         }
         Map<String, String> problemas = new HashMap<>();
-        Map<String, Dump> dumps = CorrerLotes(trabajo, archivos, new HashSet<>(archivos), "u", problemas);
+        Map<String, Dump> dumps = CorrerLotes(trabajo, archivos, new HashSet<>(archivos), nombreLote, problemas);
         for (Caso c : casos) {
             List<String> dif = new ArrayList<>();
             String a = c.id + ".mingol";
@@ -1683,9 +1708,243 @@ public class PruebasSintaxis {
             }
             Registrar(c.id, c.grupo, true, dif);
         }
-        // Meta (2.24): copia de proyecto.mingol en la subcarpeta proyecto, TestProyecto en un hijo
-        Proyecto(base);
-        ResumenSimple("unitarias");
+    }
+
+    // ------------------------------------------------------------------
+    // Pendiente 2 (P1–P4): modo cierres (spec mingol-cierres-linea-fix)
+    // ------------------------------------------------------------------
+
+    // IF4 = BEGIN / INT a; / a := 1; / IF ( a > 0 ) THEN, seguido de las líneas dadas
+    private static String[] IF4(String... resto) {
+        List<String> l = new ArrayList<>(Arrays.asList("BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN"));
+        l.addAll(Arrays.asList(resto));
+        return l.toArray(new String[0]);
+    }
+
+    // FOR4 = BEGIN / INT i; / FOR i FROM 1 BY 1 TO 3 / DO, seguido de las líneas dadas
+    private static String[] FOR4(String... resto) {
+        List<String> l = new ArrayList<>(Arrays.asList("BEGIN", "INT i;", "FOR i FROM 1 BY 1 TO 3", "DO"));
+        l.addAll(Arrays.asList(resto));
+        return l.toArray(new String[0]);
+    }
+
+    // Pendiente 2 (P1–P4, DC1–DC4, DC6): k01–k30 del diseño (grupo bug), archivo exacto.
+    // El orden de los mensajes de una línea lo compara archivoEsperado() (igualdad del -errores.txt
+    // completo, mensajes en el orden de .m), así que k14 (DC4) no necesita otra comprobación.
+    private static List<Caso> CasosCierres() {
+        List<Caso> c = new ArrayList<>();
+        String P = "print ( newline )";
+        c.add(U("bug", "k01", IF4(P + "; FI;", P, "END")).m(5, E202Cierre("FI")).ast("If.consecuencia", "1"));
+        c.add(U("bug", "k02", IF4(P + "; FI;", P + ";", "IF ( a > 0 ) THEN", P, "FI;", "SKIP", "END"))
+                .m(5, E202Cierre("FI")));
+        c.add(U("bug", "k03", FOR4(P + "; OD;", "SKIP", "END")).m(5, E202Cierre("OD")).ast("For.comandos", "1"));
+        c.add(U("bug", "k04", IF4(P + " FI;", "SKIP", "END")).m(5, E202Cierre("FI"))
+                .cad("\tLinea 5 Error 202: FI debe ir solo en su línea"));
+        c.add(U("bug", "k05", FOR4(P + " OD;", "SKIP", "END")).m(5, E202Cierre("OD")));
+        c.add(U("bug", "k06", FOR4("SKIP OD;", "SKIP", "END")).m(5, E202Cierre("OD")));
+        c.add(U("bug", "k07", IF4("a := 1 FI;", "SKIP", "END")).m(5, E202Cierre("FI")));
+        c.add(U("bug", "k08", IF4("print (", "newline ) FI;", "SKIP", "END")).m(6, E202Cierre("FI")));
+        c.add(U("bug", "k09", IF4(P + "; ELSE", P, "FI;", "SKIP", "END")).m(5, E202Cierre("ELSE"))
+                .ast("If.alternativa", "1"));
+        c.add(U("bug", "k10", IF4(P + " ELSE", P, "FI;", "SKIP", "END")).m(5, E202Cierre("ELSE"))
+                .ast("If.alternativa", "1"));
+        c.add(U("bug", "k11", IF4(P + " ELSE " + P + " FI;", "SKIP", "END")).m(5, E202Cierre("ELSE"), E202Cierre("FI"))
+                .ast("If.consecuencia", "1").ast("If.alternativa", "1"));
+        c.add(U("bug", "k12", IF4(P + " ELSE " + P, "FI;", "SKIP", "END")).m(5, E202Cierre("ELSE")));
+        c.add(U("bug", "k13", IF4(P + " ELSE", "FI;", "SKIP", "END")).m(5, E202Cierre("ELSE")).m(6, E216("FI")));
+        // DC4: los dos 202 en este orden (por posición en la línea)
+        c.add(U("bug", "k14", IF4(P + " ELSE;", P, "FI;", "SKIP", "END")).m(5, E202Cierre("ELSE"), E202("ELSE", ";")));
+        c.add(U("bug", "k15", "BEGIN", "SKIP; END").m(2, E202Cierre("END")));
+        c.add(U("bug", "k16", "BEGIN", "SKIP END").m(2, E202Cierre("END")));
+        c.add(U("bug", "k17", IF4("SKIP", "FI;", "SKIP; END")).m(7, E202Cierre("END")));
+        c.add(U("bug", "k18", IF4(P + " FI END")).m(5, E202Cierre("FI"), E202Cierre("END")));
+        c.add(U("bug", "k19", IF4(P + " FI; END")).m(5, E202Cierre("FI"), E202Cierre("END")));
+        c.add(U("bug", "k20", IF4(P + " END")).m(5, E202Cierre("END"), E204("FI", "END", "END")));
+        c.add(U("bug", "k21", IF4(P + "; FI", "SKIP", "END")).m(5, E202Cierre("FI"), E204Eol()));
+        c.add(U("bug", "k22", IF4(P + "; FI; SKIP", "SKIP", "END")).m(5, E202Cierre("FI"), E202("SEMICOLON", "SKIP")));
+        c.add(U("bug", "k23", IF4(P + "; FI xx", "SKIP", "END")).m(5, E202Cierre("FI"), E202("FI", "xx")));
+        c.add(U("bug", "k24", IF4(P + " FI xx", "SKIP", "END")).m(5, E202Cierre("FI"), E202("FI", "xx")));
+        // DC2: el error de gramática y el cierre, con el bloque cerrado
+        c.add(U("bug", "k25", IF4("read ( a a ); FI;", "SKIP", "END")).m(5, E204("RPAREN", "IDENT", "a"), E202Cierre("FI")));
+        c.add(U("bug", "k26", IF4("read ( a a ) FI;", "SKIP", "END")).m(5, E204("RPAREN", "IDENT", "a"), E202Cierre("FI")));
+        c.add(U("bug", "k27", IF4(P + " xx FI;", "SKIP", "END")).m(5, E204("SEMICOLON", "IDENT", "xx"), E202Cierre("FI")));
+        // DC1: en la línea de S9 solo el 202 de S9
+        c.add(U("bug", "k28", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN " + P + " ELSE " + P + " FI;", "SKIP", "END")
+                .m(4, E202("THEN", "print")).ast("If.consecuencia", "1").ast("If.alternativa", "1"));
+        c.add(U("bug", "k29", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN " + P + "; FI;", "SKIP", "END")
+                .m(4, E202("THEN", "print")));
+        // DC1 (frontera): la línea 6 no pasó por S9
+        c.add(U("bug", "k30", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN " + P, "ELSE", P + " FI;", "SKIP", "END")
+                .m(4, E202("THEN", "print")).m(6, E202Cierre("FI")));
+
+        // Pendiente 2 (Property 2): q01–q09 del diseño (grupo pres), sin cierres pegados que cierren.
+        // Oráculos observados sobre df34c72 (%TEMP%\mingol-p2-diag\q); deben pasar antes y después del arreglo.
+        // DC3: cierre que no cierra nada (q01–q04, q09)
+        c.add(U("pres", "q01", "BEGIN", "SKIP FI", "END").m(2, E213("FI")));
+        c.add(U("pres", "q02", "BEGIN", "SKIP; FI", "END").m(2, E202("SEMICOLON", "FI")));
+        c.add(U("pres", "q03", IF4(P, "ELSE", P + " ELSE", P, "FI;", "SKIP", "END")).m(7, E213("ELSE")));
+        c.add(U("pres", "q04", IF4(P + " OD;", "FI;", "SKIP", "END")).m(5, E213("OD")));
+        // S9 (DC1): un solo 202 y el cierre de esa línea cierra sin más mensajes
+        c.add(U("pres", "q05", "BEGIN", "INT i;", "FOR i FROM 1 BY 1 TO 3 DO " + P + " OD;", "SKIP", "END")
+                .m(3, E202("DO", "print")));
+        c.add(U("pres", "q06", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN " + P + " FI;", "SKIP", "END")
+                .m(4, E202("THEN", "print")));
+        // Cierres solos en su línea: sin mensajes y con rama else
+        c.add(U("pres", "q07", IF4(P, "ELSE", P, "FI;", "SKIP", "END")).ast("If.alternativa", "1"));
+        // 202 después de SEMICOLON por un sobrante que no es cierre (sin 206: se salta la línea)
+        c.add(U("pres", "q08", IF4(P + ";", P + "; " + P + ";", "FI;", "SKIP", "END")).m(6, E202("SEMICOLON", "print")));
+        // DC3: OD sin ningún bloque abierto; observado sobre df34c72: un solo 213 [OD]
+        c.add(U("pres", "q09", "BEGIN", "SKIP OD", "END").m(2, E213("OD")));
+
+        // Pendiente 2 (DC7): tras un 205 o un 213 en posición de comando, el cierre pegado da su 202
+        // y aplica su efecto, sin cascada (oráculos observados en %TEMP%\mingol-p2-diag\x)
+        c.add(U("dc7", "x1", IF4("xx FI;", "SKIP", "END")).m(5, E205("xx"), E202Cierre("FI")));
+        c.add(U("dc7", "x2", "BEGIN", "xx END").m(2, E205("xx"), E202Cierre("END")));
+        c.add(U("dc7", "x3", IF4("OD FI;", "SKIP", "END")).m(5, E213("OD"), E202Cierre("FI")));
+        return c;
+    }
+
+    // Programa de cierres-prop con su oráculo
+    private static class ProgCierre {
+        final List<String> l = new ArrayList<>();
+        final List<String> esperados = new ArrayList<>();   // "línea|mensaje" del lexer y del parser
+        final List<String> datos = new ArrayList<>();       // If.consecuencia/If.alternativa/For.comandos
+        int pegados;
+    }
+
+    private static final String[] CMDS_CIERRES = {"print ( newline )", "SKIP", "a := 1", "read ( a )"};
+
+    // Rama de n comandos (con ';' salvo el último) y su cierre: solo en su línea, pegado sin ';' o pegado con ';'
+    private static void RamaCierre(ProgCierre p, Random r, int n, String cierre, String trasCierre) {
+        for (int j = 0; j < n - 1; j++) p.l.add(CMDS_CIERRES[r.nextInt(CMDS_CIERRES.length)] + ";");
+        String ult = CMDS_CIERRES[r.nextInt(CMDS_CIERRES.length)];
+        int forma = r.nextInt(3);
+        if (forma == 0) {
+            p.l.add(ult);
+            p.l.add(cierre + trasCierre);
+            return;
+        }
+        p.l.add(ult + (forma == 1 ? " " : "; ") + cierre + trasCierre);
+        p.esperados.add(p.l.size() + "|" + E202Cierre(cierre));
+        p.pegados++;
+    }
+
+    // BEGIN, declaraciones, 1 a 3 bloques IF (con o sin ELSE) o FOR y los últimos comandos con su END
+    private static ProgCierre GenerarCierres(int semilla) {
+        Random r = Mezclar(semilla * 7919L + 13);
+        ProgCierre p = new ProgCierre();
+        p.l.add("BEGIN");
+        p.l.add("INT a, i;");
+        int bloques = 1 + r.nextInt(3);
+        for (int b = 0; b < bloques; b++) {
+            if (r.nextInt(3) == 0) p.l.add(CMDS_CIERRES[r.nextInt(CMDS_CIERRES.length)] + ";");
+            int n1 = 1 + r.nextInt(3);
+            if (r.nextBoolean()) {
+                p.l.add("IF ( a > 0 ) THEN");
+                int n2 = -1;
+                if (r.nextBoolean()) {
+                    n2 = 1 + r.nextInt(3);
+                    RamaCierre(p, r, n1, "ELSE", "");
+                    RamaCierre(p, r, n2, "FI", ";");
+                } else {
+                    RamaCierre(p, r, n1, "FI", ";");
+                }
+                p.datos.add("If.consecuencia=" + n1);
+                p.datos.add("If.alternativa=" + n2);
+            } else {
+                p.l.add("FOR i FROM 1 BY 1 TO 3 DO");
+                RamaCierre(p, r, n1, "OD", ";");
+                p.datos.add("For.comandos=" + n1);
+            }
+        }
+        RamaCierre(p, r, 1 + r.nextInt(2), "END", "");
+        return p;
+    }
+
+    private static final int SEMILLAS_CIERRES = 300;
+
+    // Pendiente 2 (P1–P4): un C(x) por cierre pegado, ningún otro mensaje, AST por rama
+    // Tarea 3.4: las cuentas vienen de quien llama, para que propiedades sume la familia a su total
+    private static int[] CierresProp(Path base, Map<String, int[]> cuentas) throws Exception {
+        Path trabajo = base.resolve("cierres-prop");
+        BorrarArbol(trabajo);
+        Files.createDirectories(trabajo);
+        Map<String, ProgCierre> progs = new LinkedHashMap<>();
+        List<String> archivos = new ArrayList<>();
+        Set<String> conTP = new HashSet<>();
+        for (int s = 1; s <= SEMILLAS_CIERRES; s++) {
+            String a = String.format("c%03d.mingol", s);
+            ProgCierre p = GenerarCierres(s);
+            progs.put(a, p);
+            Files.write(trabajo.resolve(a), Bytes(p.l));
+            archivos.add(a);
+            if (s <= SEMILLAS_VALIDEZ) conTP.add(a);
+        }
+        Map<String, String> problemas = new HashMap<>();
+        Map<String, Dump> dumps = CorrerLotes(trabajo, archivos, conTP, "c", problemas);
+        int conPegado = 0, fallanConPegado = 0, sinPegado = 0, fallanSinPegado = 0;
+        int s = 0;
+        for (String a : archivos) {
+            s++;
+            ProgCierre p = progs.get(a);
+            List<String> dif = new ArrayList<>();
+            if (problemas.containsKey(a)) dif.add(problemas.get(a));
+            Columnas(p.l, dif);
+            Dump d = dumps.get(a);
+            if (d != null) {
+                ComprobarComun(d, dif);
+                CompararMulticonjunto("lexer/parser", p.esperados, Todos(d.m), dif);
+                if (!d.v.isEmpty()) dif.add("mensajes del evaluador: " + Todos(d.v));
+                List<String> datosObt = new ArrayList<>();
+                for (String x : d.ast) if (x.startsWith("If.") || x.startsWith("For.")) datosObt.add(x);
+                CompararMulticonjunto("AST (bloques)", p.datos, datosObt, dif);
+                if (d.tp != null) {
+                    ComprobarValidez(d, trabajo, a, dif);
+                    if (!String.valueOf(p.pegados == 0).equals(d.tp)) dif.add("TestProyecto esperado " + (p.pegados == 0) + ", obtenido " + d.tp);
+                }
+            }
+            if (p.pegados > 0) {
+                conPegado++;
+                if (!dif.isEmpty()) fallanConPegado++;
+            } else {
+                sinPegado++;
+                if (!dif.isEmpty()) fallanSinPegado++;
+            }
+            RegistrarProp("cierres-prop", s, p.pegados + " pegados", p.l, dif, cuentas);
+        }
+        System.out.println("cierres-prop: " + SEMILLAS_CIERRES + " programas; con algún cierre pegado " + conPegado
+                + " (FALLA " + fallanConPegado + "), sin cierres pegados " + sinPegado + " (FALLA " + fallanSinPegado + ")");
+        return new int[]{conPegado, fallanConPegado, sinPegado, fallanSinPegado};
+    }
+
+    private static void Cierres() throws Exception {
+        Path base = CarpetaSegura();
+        Path trabajo = base.resolve("cierres");
+        BorrarArbol(trabajo);
+        Files.createDirectories(trabajo);
+        List<Caso> casos = CasosCierres();
+        ComprobarCasos(trabajo, casos, "k");
+        int[] prop = CierresProp(base, new LinkedHashMap<>());
+        System.out.println();
+        System.out.println("===== RESUMEN cierres =====");
+        Map<String, int[]> porGrupo = new LinkedHashMap<>();
+        for (Caso c : casos) {
+            int[] g = porGrupo.computeIfAbsent(c.grupo, k -> new int[2]);
+            g[0]++;
+            if (Boolean.TRUE.equals(fallo.get(c.id))) g[1]++;
+        }
+        for (Map.Entry<String, int[]> e : porGrupo.entrySet()) {
+            System.out.println("Grupo " + e.getKey() + ": " + e.getValue()[0] + " casos, FALLA: " + e.getValue()[1]
+                    + ", OK: " + (e.getValue()[0] - e.getValue()[1]));
+        }
+        List<String> pasan = new ArrayList<>();
+        for (Caso c : casos) if (!Boolean.TRUE.equals(fallo.get(c.id))) pasan.add(c.id);
+        System.out.println("Casos que pasan: " + (pasan.isEmpty() ? "ninguno" : pasan));
+        System.out.println("cierres-prop: " + SEMILLAS_CIERRES + " programas, FALLA: " + fallasProp
+                + " (con cierre pegado " + prop[1] + "/" + prop[0] + ", sin cierre pegado " + prop[3] + "/" + prop[2] + ")");
+        System.out.println("Total: " + (casos.size() + SEMILLAS_CIERRES) + ", FALLA: " + (fallas + fallasProp)
+                + ", OK: " + (casos.size() + SEMILLAS_CIERRES - fallas - fallasProp));
+        System.exit(fallas + fallasProp == 0 ? 0 : 1);
     }
 
     // ------------------------------------------------------------------
@@ -2550,6 +2809,9 @@ public class PruebasSintaxis {
             }
             RegistrarProp(familia, semillaDe.get(a), detalle, lineasDe.get(a), dif, cuentas);
         }
+
+        // Pendiente 2 (tarea 3.4): cierres-prop (300 programas) como una familia más
+        CierresProp(base, cuentas);
 
         // Clases de mutación cubiertas
         Map<String, Integer> clases = new TreeMap<>();
