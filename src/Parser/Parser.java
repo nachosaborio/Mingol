@@ -1266,8 +1266,10 @@ public class Parser {
         if (seccion == Seccion.ANTES_DE_BEGIN || seccion == Seccion.DESPUES_DE_END) {
             return false;
         }
+        // Pendiente 3 (DN2): un OR en posición de comando da 213 y cuenta, como newline
         return tipo != MingolToken.TYPEINT && tipo != MingolToken.TYPEREAL
-                && tipo != MingolToken.TYPECHAR && tipo != MingolToken.ALGOL;
+                && tipo != MingolToken.TYPECHAR
+                && (tipo != MingolToken.ALGOL || EsOrDeComando(currentToken));
     }
 
     // Cuerpo de ParseSatement: un comando según su primer token
@@ -1328,6 +1330,10 @@ public class Parser {
                 // Declaración: no cierra la sección de variables ni cuenta como comando (S5, DS1)
                 return ParseDeclaracion();
             case ALGOL:
+                // Pendiente 3 (N2): OR al comienzo de un comando es palabra de MINGOL: 213
+                if (EsOrDeComando(currentToken)) {
+                    return PalabraFueraDeLugar();
+                }
                 // Instrucción ALGOL ignorada: no cierra la sección ni cuenta (S5, DS1)
                 return ParseAlgolComando();
             case IDENT:
@@ -1367,10 +1373,18 @@ public class Parser {
             case BY:
             case TO:
                 // Palabra de MINGOL fuera de lugar (sin bloque abierto que la cierre): 213
-                ContarComando();
-                ErrorSintactico(213, "Palabra de MINGOL fuera de lugar", currentToken);
-                DescartarComando();
-                return null;
+                return PalabraFueraDeLugar();
+            case NEWLINE:
+                // Pendiente 3 (N1): newline no inicia ningún comando: 213, no 205
+                return PalabraFueraDeLugar();
+            case EQ:
+            case NE:
+            case LT:
+            case GT:
+            case LE:
+            case GE:
+                // Pendiente 3 (N1, DN1): solo la forma en palabra da 213; el símbolo sigue con 205
+                return EsPalabra(currentToken) ? PalabraFueraDeLugar() : ComandoInvalido();
             case RETURN:
                 // Inalcanzable (el lexer da ALGOL); se conserva (decisión 6)
                 ContarComando();
@@ -1393,6 +1407,24 @@ public class Parser {
         if (!vistoEnd) {
             comandos++;
         }
+    }
+
+    // Pendiente 3 (N1, N2): camino único del 213 (cuenta, no cierra la sección, resincroniza)
+    private Statement PalabraFueraDeLugar() {
+        ContarComando();
+        ErrorSintactico(213, "Palabra de MINGOL fuera de lugar", currentToken);
+        DescartarComando();
+        return null;
+    }
+
+    // Pendiente 3 (N2): el lexer da OR como ALGOL (REQ-ALGOL-03); se reconoce por su literal
+    private boolean EsOrDeComando(Token t) {
+        return t.getTokenType() == MingolToken.ALGOL && "OR".equals(t.getLiteral());
+    }
+
+    // Pendiente 3 (DN1): forma en palabra (EQ) y no símbolo (=): el literal empieza con letra
+    private boolean EsPalabra(Token t) {
+        return Character.isLetter(t.getLiteral().charAt(0));
     }
 
     // S8: 205 con el primer token del comando y resincronización (cuenta, no cierra la sección)

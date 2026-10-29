@@ -17,16 +17,22 @@
 //   unitarias         -> tarea 3.9: un caso por cláusula 2.1–2.23 (mensaje exacto en el -errores.txt y
 //                        cadena de GetErrors()), casos obligatorios, bordes de fin de comando, L4, AST,
 //                        evaluador y la copia de proyecto.mingol. Desde el pendiente 2 (tarea 3.4)
-//                        suma también los casos del modo cierres (k01–k30 y q01–q09).
+//                        suma también los casos del modo cierres (k01–k30 y q01–q09); desde el
+//                        pendiente 3 (tarea 3.4), los del modo palabras (w01–w25 y v01–v31).
 //   propiedades       -> tarea 3.9: 300 semillas por familia (válidos, una sola falta, dominio de
 //                        preservación contra el oráculo de la tarea 2) y validez con TestProyecto en
 //                        las primeras 50 de cada familia. Desde el pendiente 2 (tarea 3.4) suma la
-//                        familia cierres-prop (300 programas).
+//                        familia cierres-prop (300 programas); desde el pendiente 3 (tarea 3.4),
+//                        la familia palabras-prop (200 programas).
 //   hijolote <lista>  -> interno: analiza en un hijo (R8) un lote de fuentes y deja un .dump por fuente.
 //   cierres           -> pendiente 2 (P1–P4): k01–k30 (grupo bug, archivo exacto) y la propiedad
 //                        generada cierres-prop (300 programas, semilla fija). Fallaba en df34c72;
 //                        pasa tras el arreglo.
 //                        Grupo pres (q01–q09, Property 2): debe PASAR antes y después del arreglo.
+//   palabras          -> pendiente 3 (N1, N2, DN1, DN2): w01–w25 (grupo bug, archivo exacto) y la
+//                        propiedad generada palabras-prop (200 programas, semilla fija). Debe FALLAR
+//                        en a251e7c (newline/EQ…GE dan 205 y OR da advertencia) y pasar tras el arreglo.
+//                        Grupo pres (v01–v31, Property 2): debe PASAR antes y después del arreglo.
 //
 // Solo usa API presente antes y después del arreglo; los nodos nuevos (Declaracion, Asignacion,
 // Secuencia) se miran por reflexión, para que el arnés compile también contra 24f9001.
@@ -105,7 +111,7 @@ public class PruebasSintaxis {
     public static void main(String[] args) throws Exception {
         if (args.length == 0) {
             System.err.println("Uso: PruebasSintaxis exploracion | capturar [--sobrescribir] | preservacion | unitarias"
-                    + " | propiedades | cierres | hijotp <archivo> | hijocap <archivo> | hijolote <lista>");
+                    + " | propiedades | cierres | palabras | hijotp <archivo> | hijocap <archivo> | hijolote <lista>");
             System.exit(2);
         }
         switch (args[0]) {
@@ -138,6 +144,10 @@ public class PruebasSintaxis {
             // Pendiente 2 (P1–P4): exploración de los cierres en la línea de un comando
             case "cierres":
                 Cierres();
+                break;
+            // Pendiente 3 (N1, N2): palabras de MINGOL al comienzo de un comando
+            case "palabras":
+                Palabras();
                 break;
             default:
                 System.err.println("Modo desconocido: " + args[0]);
@@ -1657,6 +1667,8 @@ public class PruebasSintaxis {
         ComprobarCasos(trabajo, CasosUnitarios(), "u");
         // Pendiente 2 (tarea 3.4): k01–k30 y q01–q09 también en CI
         ComprobarCasos(trabajo, CasosCierres(), "k");
+        // Pendiente 3 (tarea 3.4): w01–w25 y v01–v31 también en CI
+        ComprobarCasos(trabajo, CasosPalabras(), "w");
         // Meta (2.24): copia de proyecto.mingol en la subcarpeta proyecto, TestProyecto en un hijo
         Proyecto(base);
         ResumenSimple("unitarias");
@@ -1944,6 +1956,233 @@ public class PruebasSintaxis {
                 + " (con cierre pegado " + prop[1] + "/" + prop[0] + ", sin cierre pegado " + prop[3] + "/" + prop[2] + ")");
         System.out.println("Total: " + (casos.size() + SEMILLAS_CIERRES) + ", FALLA: " + (fallas + fallasProp)
                 + ", OK: " + (casos.size() + SEMILLAS_CIERRES - fallas - fallasProp));
+        System.exit(fallas + fallasProp == 0 ? 0 : 1);
+    }
+
+    // ------------------------------------------------------------------
+    // Pendiente 3 (N1, N2, DN1, DN2): modo palabras (spec mingol-palabras-comando-fix)
+    // ------------------------------------------------------------------
+
+    // Pendiente 3 (Property 1): w01–w25 del diseño (grupo bug), archivo exacto; validez por los mensajes
+    private static List<Caso> CasosPalabras() {
+        List<Caso> c = new ArrayList<>();
+        String P = "print ( newline )";
+        // N1: newline al comienzo de un comando (con y sin ';'); 2.6: cadena de GetErrors()
+        c.add(U("bug", "w01", "BEGIN", "newline;", "SKIP", "END").m(2, E213("newline"))
+                .cad("\tLinea 2 Error 213: Palabra de MINGOL fuera de lugar [newline]"));
+        c.add(U("bug", "w02", "BEGIN", "SKIP;", "newline", "END").m(3, E213("newline")));
+        // N1 (DN1): las formas en palabra de los relacionales, w03–w08
+        String[] rel = {"EQ", "NE", "LT", "GT", "LE", "GE"};
+        for (int i = 0; i < rel.length; i++) {
+            c.add(U("bug", String.format("w%02d", 3 + i), "BEGIN", rel[i] + " x;", "SKIP", "END").m(2, E213(rel[i])));
+        }
+        // N2: OR al comienzo de un comando, sin advertencia e inválido
+        c.add(U("bug", "w09", "BEGIN", "OR x;", "SKIP", "END").m(2, E213("OR"))
+                .cad("\tLinea 2 Error 213: Palabra de MINGOL fuera de lugar [OR]"));
+        c.add(U("bug", "w10", "BEGIN", "SKIP;", "OR", "END").m(3, E213("OR")));
+        c.add(U("bug", "w11", "BEGIN", "newline ( a );", "EQ ( a ) ;", "OR ( a )", "SKIP", "END")
+                .m(2, E213("newline")).m(3, E213("EQ")).m(4, E213("OR")));
+        // 2.5 (DC1): en la línea de S9 el FI cierra sin C(FI)
+        c.add(U("bug", "w12", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN newline FI;", "SKIP", "END")
+                .m(4, E202("THEN", "newline"), E213("newline")));
+        c.add(U("bug", "w13", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN OR x FI;", "SKIP", "END")
+                .m(4, E202("THEN", "OR"), E213("OR")));
+        // 2.5 (DC7): cierre pegado tras el 213
+        c.add(U("bug", "w14", IF4("newline FI;", "SKIP", "END")).m(5, E213("newline"), E202Cierre("FI")));
+        c.add(U("bug", "w15", IF4("OR x FI;", "SKIP", "END")).m(5, E213("OR"), E202Cierre("FI")));
+        // 2.4 (DN2): OR cuenta como comando para 216/217
+        c.add(U("bug", "w16", IF4("OR x;", "FI;", "SKIP", "END")).m(5, E213("OR")));
+        c.add(U("bug", "w17", IF4("OR x;", "ELSE", P, "FI;", "SKIP", "END")).m(5, E213("OR"))
+                .ast("If.alternativa", "1"));
+        c.add(U("bug", "w18", IF4(P, "ELSE", "OR x;", "FI;", "SKIP", "END")).m(7, E213("OR")));
+        c.add(U("bug", "w19", "BEGIN", "OR x;", "END").m(2, E213("OR")));
+        // 2.4: OR no cierra la sección de variables (206 de hoy en 5, sin 209)
+        c.add(U("bug", "w20", "BEGIN", "INT a;", "OR x;", "INT b;", "a := 1;", "END").m(3, E213("OR")).m(5, E206("END")));
+        c.add(U("bug", "w21", "BEGIN", "INT a;", "OR := 1;", "SKIP", "END").m(3, E213("OR")));
+        c.add(U("bug", "w22", "BEGIN", "OR x END").m(2, E213("OR"), E202Cierre("END")));
+        c.add(U("bug", "w23", "BEGIN", "OR; SKIP;", "SKIP", "END").m(2, E213("OR")));
+        c.add(U("bug", "w24", "BEGIN", "INT a;", "newline := 1;", "SKIP", "END").m(3, E213("newline")));
+        c.add(U("bug", "w25", IF4(P, "ELSE", "newline", "FI;", "SKIP", "END")).m(7, E213("newline")));
+
+        // Pendiente 3 (Property 2): v01–v31 del diseño (grupo pres), archivo exacto; oráculos
+        // observados sobre a251e7c en %TEMP%\mingol-p3\diag2 (diag3.ps1, resumen3.txt)
+        // 3.1: las otras ocho palabras del 213
+        String[] otras = {"FI", "OD", "ELSE", "THEN", "DO", "FROM", "BY", "TO"};
+        for (int i = 0; i < otras.length; i++) {
+            c.add(U("pres", String.format("v%02d", 1 + i), "BEGIN", otras[i] + " x;", "SKIP", "END").m(2, E213(otras[i])));
+        }
+        // 3.2: advertencia ALGOL (válido); v10 = TRUE por L7
+        c.add(U("pres", "v09", "BEGIN", "LONG x;", "max;", "sqrt ( 4 );", "printf ( x );", "SKIP", "END")
+                .m(2, Adv("LONG")).m(3, Adv("max")).m(4, Adv("sqrt")).m(5, Adv("printf")));
+        c.add(U("pres", "v10", "BEGIN", "TRUE;", "SKIP", "END").m(2, Adv("TRUE")));
+        // 3.3 y 3.4: newline dentro de print, OR en condición y expresión, sin mensajes
+        c.add(U("pres", "v11", "BEGIN", P + ";", "SKIP", "END"));
+        c.add(U("pres", "v12", "BEGIN", "INT a;", "a := 1;", "IF ( a = 1 OR a = 2 ) THEN", P, "FI;", "SKIP", "END")
+                .ast("Secuencia.algol", "OR"));
+        c.add(U("pres", "v13", "BEGIN", "INT a;", "a := 1 OR 2;", "SKIP", "END").ast("Secuencia.algol", "OR"));
+        // 3.4: líneas de continuación (S4, DS6)
+        c.add(U("pres", "v14", "BEGIN", P, "newline;", "END").m(3, E204("SEMICOLON", "NEWLINE", "newline")));
+        c.add(U("pres", "v15", "BEGIN", P, "OR x;", "END").m(3, E204("SEMICOLON", "ALGOL", "OR")));
+        c.add(U("pres", "v16", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 )", "OR a > 1 ) THEN", P, "FI;", "SKIP", "END")
+                .m(5, E204("THEN", "ALGOL", "OR")));
+        c.add(U("pres", "v17", IF4(P, "newline FI;", "SKIP", "END"))
+                .m(6, E204("SEMICOLON", "NEWLINE", "newline"), E202Cierre("FI")));
+        // 3.5: minúsculas como identificadores
+        c.add(U("pres", "v18", "BEGIN", "eq x;", "SKIP", "END").m(2, E205("eq")));
+        c.add(U("pres", "v19", "BEGIN", "or x;", "SKIP", "END").m(2, E205("or")));
+        // 3.6: S6, fuera de BEGIN...END
+        c.add(U("pres", "v20", "newline;", "BEGIN", "SKIP", "END").m(1, E207("newline")));
+        c.add(U("pres", "v21", "OR x;", "BEGIN", "SKIP", "END").m(1, E207("OR")));
+        c.add(U("pres", "v22", "BEGIN", "SKIP", "END", "newline;", "OR x;").m(4, E208("newline")).m(5, E208("OR")));
+        // 3.7 (DN1): los símbolos siguen con 205
+        String[] sim = {"=", "/=", "<", ">", "<=", ">="};
+        for (int i = 0; i < sim.length; i++) {
+            c.add(U("pres", String.format("v%02d", 23 + i), "BEGIN", sim[i] + " x;", "SKIP", "END").m(2, E205(sim[i])));
+        }
+        // 3.3: print newline; da el 204 LPAREN de hoy
+        c.add(U("pres", "v29", "BEGIN", "print newline;", "SKIP", "END").m(2, E204("LPAREN", "NEWLINE", "newline")));
+        // 3.8: etiquetas reservadas, 106 del lexer
+        c.add(U("pres", "v30", "BEGIN", "newline:", "SKIP", "END")
+                .m(2, Err(106, "Palabra reservada de MINGOL o ALGOL usada como etiqueta", "newline")));
+        c.add(U("pres", "v31", "BEGIN", "OR:", "SKIP", "END")
+                .m(2, Err(106, "Palabra reservada de MINGOL o ALGOL usada como etiqueta", "OR")));
+        return c;
+    }
+
+    // Programa de palabras-prop con su oráculo
+    private static class ProgPalabra {
+        final List<String> l = new ArrayList<>();
+        final List<String> esperados = new ArrayList<>();   // "línea|E213(palabra)"
+        int palabras;
+    }
+
+    private static final String[] PALABRAS_P3 = {"newline", "EQ", "NE", "LT", "GT", "LE", "GE", "OR"};
+    private static final String[] SUFIJOS_P3 = {"", " x", " ( a )", " a b"};
+    private static final int SEMILLAS_PALABRAS = 200;
+
+    // Pendiente 3: n líneas; cada una es un comando válido o, con probabilidad 1/3, una línea palabra.
+    // Los válidos llevan ';' salvo el último antes de un cierre; una línea palabra sin ';' solo va
+    // seguida de un comando válido, de un cierre o del SKIP final, para que nada sea continuación
+    private static void LineasPalabra(ProgPalabra p, Random r, int n, boolean antesDeCierre) {
+        boolean[] esPalabra = new boolean[n];
+        for (int j = 0; j < n; j++) esPalabra[j] = r.nextInt(3) == 0;
+        for (int j = 0; j < n; j++) {
+            boolean ultima = j == n - 1;
+            if (esPalabra[j]) {
+                String w = PALABRAS_P3[r.nextInt(PALABRAS_P3.length)];
+                boolean sigPalabra = !ultima && esPalabra[j + 1];
+                boolean pyc = sigPalabra || r.nextBoolean();
+                p.l.add(w + SUFIJOS_P3[r.nextInt(SUFIJOS_P3.length)] + (pyc ? ";" : ""));
+                p.esperados.add(p.l.size() + "|" + E213(w));
+                p.palabras++;
+            } else {
+                String cmd = CMDS_CIERRES[r.nextInt(CMDS_CIERRES.length)];
+                p.l.add(cmd + (ultima && antesDeCierre ? "" : ";"));
+            }
+        }
+    }
+
+    // BEGIN / INT a, i; / a := 1; / 1 a 6 líneas (a veces dentro de un IF o un FOR) / SKIP / END
+    private static ProgPalabra GenerarPalabras(int semilla) {
+        Random r = Mezclar(semilla * 104729L + 31);
+        ProgPalabra p = new ProgPalabra();
+        p.l.add("BEGIN");
+        p.l.add("INT a, i;");
+        p.l.add("a := 1;");
+        int k = 1 + r.nextInt(6);
+        int modo = r.nextInt(3);
+        if (modo == 0) {
+            LineasPalabra(p, r, k, false);
+        } else {
+            int antes = r.nextInt(k);
+            LineasPalabra(p, r, antes, false);
+            p.l.add(modo == 1 ? "IF ( a > 0 ) THEN" : "FOR i FROM 1 BY 1 TO 3 DO");
+            LineasPalabra(p, r, k - antes, true);
+            p.l.add(modo == 1 ? "FI;" : "OD;");
+        }
+        p.l.add("SKIP");
+        p.l.add("END");
+        return p;
+    }
+
+    // Pendiente 3 (Property 1): un E213 por línea palabra, ningún otro mensaje, inválido si y solo si hay alguna
+    private static int[] PalabrasProp(Path base, Map<String, int[]> cuentas) throws Exception {
+        Path trabajo = base.resolve("palabras-prop");
+        BorrarArbol(trabajo);
+        Files.createDirectories(trabajo);
+        Map<String, ProgPalabra> progs = new LinkedHashMap<>();
+        List<String> archivos = new ArrayList<>();
+        Set<String> conTP = new HashSet<>();
+        for (int s = 1; s <= SEMILLAS_PALABRAS; s++) {
+            String a = String.format("w%03d.mingol", s);
+            ProgPalabra p = GenerarPalabras(s);
+            progs.put(a, p);
+            Files.write(trabajo.resolve(a), Bytes(p.l));
+            archivos.add(a);
+            if (s <= SEMILLAS_VALIDEZ) conTP.add(a);
+        }
+        Map<String, String> problemas = new HashMap<>();
+        Map<String, Dump> dumps = CorrerLotes(trabajo, archivos, conTP, "w", problemas);
+        int conPalabra = 0, fallanConPalabra = 0, sinPalabra = 0, fallanSinPalabra = 0;
+        int s = 0;
+        for (String a : archivos) {
+            s++;
+            ProgPalabra p = progs.get(a);
+            List<String> dif = new ArrayList<>();
+            if (problemas.containsKey(a)) dif.add(problemas.get(a));
+            Columnas(p.l, dif);
+            Dump d = dumps.get(a);
+            if (d != null) {
+                ComprobarComun(d, dif);
+                CompararMulticonjunto("lexer/parser", p.esperados, Todos(d.m), dif);
+                if (!d.v.isEmpty()) dif.add("mensajes del evaluador: " + Todos(d.v));
+                if (d.tp != null) {
+                    ComprobarValidez(d, trabajo, a, dif);
+                    if (!String.valueOf(p.palabras == 0).equals(d.tp)) dif.add("TestProyecto esperado " + (p.palabras == 0) + ", obtenido " + d.tp);
+                }
+            }
+            if (p.palabras > 0) {
+                conPalabra++;
+                if (!dif.isEmpty()) fallanConPalabra++;
+            } else {
+                sinPalabra++;
+                if (!dif.isEmpty()) fallanSinPalabra++;
+            }
+            RegistrarProp("palabras-prop", s, p.palabras + " líneas palabra", p.l, dif, cuentas);
+        }
+        System.out.println("palabras-prop: " + SEMILLAS_PALABRAS + " programas; con alguna línea palabra " + conPalabra
+                + " (FALLA " + fallanConPalabra + "), sin líneas palabra " + sinPalabra + " (FALLA " + fallanSinPalabra + ")");
+        return new int[]{conPalabra, fallanConPalabra, sinPalabra, fallanSinPalabra};
+    }
+
+    // Pendiente 3: total por grupo y resumen de la propiedad, como Cierres()
+    private static void Palabras() throws Exception {
+        Path base = CarpetaSegura();
+        Path trabajo = base.resolve("palabras");
+        BorrarArbol(trabajo);
+        Files.createDirectories(trabajo);
+        List<Caso> casos = CasosPalabras();
+        ComprobarCasos(trabajo, casos, "w");
+        int[] prop = PalabrasProp(base, new LinkedHashMap<>());
+        System.out.println();
+        System.out.println("===== RESUMEN palabras =====");
+        Map<String, int[]> porGrupo = new LinkedHashMap<>();
+        for (Caso c : casos) {
+            int[] g = porGrupo.computeIfAbsent(c.grupo, k -> new int[2]);
+            g[0]++;
+            if (Boolean.TRUE.equals(fallo.get(c.id))) g[1]++;
+        }
+        for (Map.Entry<String, int[]> e : porGrupo.entrySet()) {
+            System.out.println("Grupo " + e.getKey() + ": " + e.getValue()[0] + " casos, FALLA: " + e.getValue()[1]
+                    + ", OK: " + (e.getValue()[0] - e.getValue()[1]));
+        }
+        List<String> pasan = new ArrayList<>();
+        for (Caso c : casos) if (!Boolean.TRUE.equals(fallo.get(c.id))) pasan.add(c.id);
+        System.out.println("Casos que pasan: " + (pasan.isEmpty() ? "ninguno" : pasan));
+        System.out.println("palabras-prop: " + SEMILLAS_PALABRAS + " programas, FALLA: " + fallasProp
+                + " (con línea palabra " + prop[1] + "/" + prop[0] + ", sin línea palabra " + prop[3] + "/" + prop[2] + ")");
+        System.out.println("Total: " + (casos.size() + SEMILLAS_PALABRAS) + ", FALLA: " + (fallas + fallasProp)
+                + ", OK: " + (casos.size() + SEMILLAS_PALABRAS - fallas - fallasProp));
         System.exit(fallas + fallasProp == 0 ? 0 : 1);
     }
 
@@ -2812,6 +3051,8 @@ public class PruebasSintaxis {
 
         // Pendiente 2 (tarea 3.4): cierres-prop (300 programas) como una familia más
         CierresProp(base, cuentas);
+        // Pendiente 3 (tarea 3.4): palabras-prop (200 programas) como una familia más
+        PalabrasProp(base, cuentas);
 
         // Clases de mutación cubiertas
         Map<String, Integer> clases = new TreeMap<>();
