@@ -77,7 +77,7 @@ powershell -ExecutionPolicy Bypass -File tests\ci\ejecutar-pruebas.ps1
 - `PruebasCriticos`: los errores críticos (cuelgues, excepciones, invocación de `a68g`).
 - `PruebasArchivoErrores`: el formato y el orden del archivo de errores.
 - `PruebasLexico`: el analizador léxico (identificadores, comentarios, constantes, longitud de línea, operadores y palabras reservadas).
-- `PruebasSintaxis`: el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa y comandos desconocidos).
+- `PruebasSintaxis`: el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa, comandos desconocidos, cierres `FI`/`OD`/`ELSE`/`END` fuera de su línea y palabras de MINGOL fuera de lugar).
 - `PruebasSemantica`: el analizador semántico (variables y etiquetas definidas, `GOTO` hacia adelante, tipos en la asignación, `CHAR` de un carácter, `FOR` con variable y límites `INT`, `read` y `print`).
 - `PruebasEntrada`: la entrada y la ejecución (nombre y extensión del fuente, archivo inexistente o ilegible, generación del `.a68` y código de salida de `a68g`).
 
@@ -107,7 +107,7 @@ El flujo de [GitHub Actions](.github/workflows/ci.yml) corre en Windows:
 
 ## Estado
 
-Están hechas las correcciones de los errores críticos, el formato del archivo de errores, el analizador léxico, el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa y comandos desconocidos) y el analizador semántico (variables y etiquetas definidas, `GOTO` a una etiqueta de cualquier parte del programa, tipos en la asignación, `CHAR` de un solo carácter, `FOR` con variable y límites `INT`, y `read`/`print`), además de la entrada y la ejecución (validación del nombre del archivo, `.a68` solo sin errores y código de salida de `a68g`). El programa de ejemplo `proyecto.mingol` ya pasa los análisis léxico, sintáctico y semántico: lo único que impide su ejecución son tres textos de más de 30 caracteres (`ERROR 111`), como exige el requisito de constantes de texto.
+Están hechas las correcciones de los errores críticos, el formato del archivo de errores, el analizador léxico, el analizador sintáctico (declaraciones, asignación, comandos de varias líneas, regla del punto y coma, `IF`/`FOR`, estructura del programa y comandos desconocidos) y el analizador semántico (variables y etiquetas definidas, `GOTO` a una etiqueta de cualquier parte del programa, tipos en la asignación, `CHAR` de un solo carácter, `FOR` con variable y límites `INT`, y `read`/`print`), además de la entrada y la ejecución (validación del nombre del archivo, `.a68` solo sin errores y código de salida de `a68g`). También se ajustaron casos de borde de la sintaxis: un cierre (`FI`, `OD`, `ELSE`, `END`) pegado a un comando o después de `BEGIN`, de una etiqueta, de `ELSE` o de una instrucción ALGOL da un solo `ERROR 202` y cierra igual su bloque, sin errores en cascada; y `newline`, `EQ`…`GE` u `OR` al comienzo de un comando dan `ERROR 213`. El programa de ejemplo `proyecto.mingol` ya pasa los análisis léxico, sintáctico y semántico: lo único que impide su ejecución son tres textos de más de 30 caracteres (`ERROR 111`), como exige el requisito de constantes de texto.
 
 ## Créditos
 
