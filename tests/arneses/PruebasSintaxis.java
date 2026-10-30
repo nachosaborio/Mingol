@@ -3407,6 +3407,8 @@ public class PruebasSintaxis {
 
     // TestProyecto por reflexión (sin a68g) y, aparte, un resumen del AST del mismo fuente
     private static void HijoTP(String archivo) throws Exception {
+        // Avisos: es la salida estándar del hijo; cerrarla la cerraría para todo el proceso
+        @SuppressWarnings("resource")
         PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
         Method m = Class.forName("Mingol.Mingol").getDeclaredMethod("TestProyecto", String.class);
         m.setAccessible(true);

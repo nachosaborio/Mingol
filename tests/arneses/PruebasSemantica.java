@@ -1459,7 +1459,7 @@ public class PruebasSemantica {
     }
 
     // EsVariable, DeclararTipo/TipoDe, RegistrarEtiqueta, PrimeraEtiqueta y EsEtiqueta (DM1)
-    @SuppressWarnings("unchecked")
+    //@SuppressWarnings("unchecked")
     private static void UnitariaEnvironment() {
         List<String> dif = new ArrayList<>();
         try {
@@ -1510,7 +1510,7 @@ public class PruebasSemantica {
 
     // Fuera de un Program (REPL, DM3): dos Etiqueta "fin" sobre el mismo Environment → nada y luego 304;
     // Evaluate(Identifier) sobre env.put(nombre, "") sigue dando 303
-    @SuppressWarnings("unchecked")
+    //@SuppressWarnings("unchecked")
     private static void UnitariaFueraDePrograma() {
         List<String> dif = new ArrayList<>();
         try {
@@ -2275,6 +2275,8 @@ public class PruebasSemantica {
     // ------------------------------------------------------------------
 
     private static void HijoTP(String archivo) throws Exception {
+        // Avisos: es la salida estándar del hijo; cerrarla la cerraría para todo el proceso
+        @SuppressWarnings("resource")
         PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
         Method m = Class.forName("Mingol.Mingol").getDeclaredMethod("TestProyecto", String.class);
         m.setAccessible(true);

@@ -1157,13 +1157,10 @@ public class PruebasLexico {
             c.comentarios = Boolean.parseBoolean(meta.get("comentarios"));
             c.fuente = Files.readAllBytes(g.resolve("fuente.bin"));
             Path capG = g.resolve("captura.txt");
-            Path errG = g.resolve("errores.bin");
             String esperado = Files.exists(capG) ? new String(Files.readAllBytes(capG), StandardCharsets.UTF_8) : null;
-            byte[] erroresEsp = Files.exists(errG) ? Files.readAllBytes(errG) : null;
 
             Object[] res = CorrerCaptura(c, trabajo.resolve(id), dif);
             String obtenido = (String) res[0];
-            byte[] erroresObt = (byte[]) res[1];
             if (esperado == null) dif.add("la captura no tiene captura.txt");
             if (esperado != null && obtenido != null) {
                 // área 4 (DM10, M4): solo tokens (si el caso los tiene), los 1xx en orden y las excepciones del
@@ -1222,15 +1219,6 @@ public class PruebasLexico {
                 String[] c = l.split("\\|", 6);
                 if (c.length >= 4 && c[3].matches("1\\d\\d")) r.add(l);
             }
-        }
-        return r;
-    }
-
-    // Líneas de mensajes (GetMensajes), excepciones del parser, hasErrors y TestProyecto
-    private static List<String> SoloMensajesYValidez(String captura) {
-        List<String> r = new ArrayList<>();
-        for (String l : captura.split("\n")) {
-            if (l.startsWith("MSG|") || l.startsWith("PARSER|") || l.startsWith("HAS|") || l.startsWith("TP|")) r.add(l);
         }
         return r;
     }
@@ -1323,6 +1311,8 @@ public class PruebasLexico {
 
     // TestProyecto por reflexión, como RunTestProyecto (sin a68g)
     private static void HijoTP(String archivo) throws Exception {
+        // Avisos: es la salida estándar del hijo; cerrarla la cerraría para todo el proceso
+        @SuppressWarnings("resource")
         PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
         Method m = Class.forName("Mingol.Mingol").getDeclaredMethod("TestProyecto", String.class);
         m.setAccessible(true);
@@ -1340,6 +1330,8 @@ public class PruebasLexico {
 
     // ParseProgram del caso 9: imprime los 1xx o la excepción
     private static void HijoFor(String archivo) throws Exception {
+        // Avisos: es la salida estándar del hijo; cerrarla la cerraría para todo el proceso
+        @SuppressWarnings("resource")
         PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
         int codigo = 0;
         try {
@@ -1376,7 +1368,6 @@ public class PruebasLexico {
         int codigo = -1;
         String stdout = "";
         String stderr = "";
-        long milis;
 
         String todo() {
             return stdout + "\n" + stderr;
@@ -1411,7 +1402,6 @@ public class PruebasLexico {
         pb.directory(directorio.toFile());
         pb.redirectOutput(out);
         pb.redirectError(err);
-        long inicio = System.currentTimeMillis();
         Process p = pb.start();
         ResultadoHijo r = new ResultadoHijo();
         r.termino = p.waitFor(LIMITE_SEGUNDOS, TimeUnit.SECONDS);
@@ -1423,7 +1413,6 @@ public class PruebasLexico {
         } else {
             r.codigo = p.exitValue();
         }
-        r.milis = System.currentTimeMillis() - inicio;
         r.stdout = LeerRecortado(out.toPath(), 64 * 1024);
         r.stderr = LeerRecortado(err.toPath(), 64 * 1024);
         return r;

@@ -1,7 +1,6 @@
 package Lexer;
 
 import Errores.Mensaje;
-import Evaluador.Caracter;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;

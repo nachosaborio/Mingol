@@ -12,7 +12,6 @@
 package Mingol;
 
 import Evaluador.Environment;
-import Evaluador.Errado;
 import Evaluador.Evaluator;
 import Evaluador.Objeto;
 import Errores.ArchivoErrores; // Escritura del archivo de errores
@@ -104,6 +103,8 @@ public class Mingol {
 
     // Firma y resultado conservados para los arneses: sin 115, el nombre lo valida main (DE2)
     // El .a68 sigue E5/E6/E10 por Procesar; ya no se escribe con FileWriter antes del análisis (DE8)
+    // Avisos: lo usan los arneses por reflexión
+    @SuppressWarnings("unused")
     private static boolean TestProyecto(String archivoOriginal) throws IOException{
         Path fuente = Paths.get(archivoOriginal);
         // La lectura sigue lanzando IOException como antes
@@ -434,6 +435,8 @@ public class Mingol {
         }
     }
 
+    // Avisos: se conserva por la decisión 6 (no se llama; el Scanner es System.in y no se cierra)
+    @SuppressWarnings({"unused", "resource"})
     private static void REPL(){
         var scanned = new ArrayList<String>();
         
@@ -477,6 +480,8 @@ public class Mingol {
         }
     }
 
+    // Avisos: se conserva por la decisión 6 (no se llama; el switch solo mira algunos tokens)
+    @SuppressWarnings({"unused", "incomplete-switch"})
     private static boolean TestTarea(String archivoOriginal) throws IOException {
         boolean hasErrors = false;
         boolean isBegin = false;

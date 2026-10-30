@@ -112,7 +112,6 @@ public class PruebasArchivoErrores {
         boolean crlf;          // Área 5 (E10): líneas separadas con \r\n en lugar de \n (t14)
         String nombreErrores;  // <archivo sin carpetas ni extensión>-errores.txt, en la carpeta actual
         String rutaA68;        // donde la deja RutaA68
-        boolean generado;      // true si sale del generador; sin lectura desde el pendiente 8 (la usaba la captura)
         Map<Integer, List<String>> bajoLinea = new LinkedHashMap<>();
         List<String> finales = new ArrayList<>();
 
@@ -607,7 +606,6 @@ public class PruebasArchivoErrores {
         boolean saltoFinal = r.nextBoolean();
         Caso c = Nuevo(id, id + ".mingol", id + ".mingol", id + "-errores.txt", id + ".a68", saltoFinal,
                 l.toArray(new String[0]));
-        c.generado = true;
         return c;
     }
 
@@ -1982,7 +1980,6 @@ public class PruebasArchivoErrores {
     }
 
     // Borra una carpeta de trabajo del arnés; se niega a borrar fuera de %TEMP% (propiedades y main)
-    @SuppressWarnings("unused")
     private static void BorrarArbol(Path dir) throws IOException {
         if (!Files.exists(dir)) return;
         Path temp = CarpetaGolden().getParent().toAbsolutePath().normalize();
@@ -1999,7 +1996,6 @@ public class PruebasArchivoErrores {
     }
 
     // Llama por reflexión a un método estático de Mingol.Mingol (también privado), para las tareas 2 a 4.8
-    @SuppressWarnings("unused")
     private static Object Llamar(String metodo, Class<?>[] tipos, Object... args) throws Exception {
         Method m = Class.forName("Mingol.Mingol").getDeclaredMethod(metodo, tipos);
         m.setAccessible(true);

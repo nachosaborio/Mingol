@@ -32,9 +32,8 @@ public class Parser {
     private ArrayList<Token> tokens;
     // Índice de currentToken en 'tokens' (-2 antes del primer AdvanceToken)
     private int indiceActual = -2;
-    // Si el fuente tiene algún BEGIN / END (para la sección inicial y S6)
+    // Si el fuente tiene algún BEGIN (para la sección inicial y S6); Avisos: sin hayEnd, que no se leía
     private boolean hayBegin = false;
-    private boolean hayEnd = false;
     // Líneas físicas no vacías que lleva el comando actual (S4: máximo 5)
     private int lineasDelComando = 1;
     // ILLEGAL quitados de 'tokens', con el índice del token que los sigue, y el próximo a registrar
@@ -56,12 +55,10 @@ public class Parser {
     private int comandos = 0;
     // Si el último ParseSatement fue un comando que cuenta para 216/217 (DS1)
     private boolean ultimoCuenta = false;
-    // Cambio 6: un nivel de la pila de bloques (palabra IF/FOR y sus cierres)
+    // Cambio 6: un nivel de la pila de bloques (sus cierres); Avisos: sin la palabra IF/FOR, que no se leía
     private static class NivelDeBloque {
-        final MingolToken palabra;
         final EnumSet<MingolToken> cierres;
-        NivelDeBloque(MingolToken palabra, EnumSet<MingolToken> cierres) {
-            this.palabra = palabra;
+        NivelDeBloque(EnumSet<MingolToken> cierres) {
             this.cierres = cierres;
         }
     }
@@ -131,8 +128,6 @@ public class Parser {
             }
             if (t.getTokenType() == MingolToken.BEGIN) {
                 hayBegin = true;
-            } else if (t.getTokenType() == MingolToken.END) {
-                hayEnd = true;
             }
             tokens.add(t);
             if (t.getTokenType() == MingolToken.EOF) {
@@ -476,7 +471,7 @@ public class Parser {
             conjunto.add(c);
         }
         Block block = new Block(currentToken, new ArrayList<>());
-        pilaDeBloques.add(new NivelDeBloque(tipo, conjunto));
+        pilaDeBloques.add(new NivelDeBloque(conjunto));
         if (tipo == MingolToken.IF) {
             ifsAbiertos++;
         } else if (tipo == MingolToken.FOR) {

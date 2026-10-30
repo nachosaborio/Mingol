@@ -7,7 +7,7 @@ public enum MingolToken {
     ASSIGN,//
     BEGIN,//
     BY,//
-    CHARACTER,//TODO
+    CHARACTER,//
     COMMA,//
     COMMENT,//
     DECIMAL,
@@ -57,8 +57,8 @@ public enum MingolToken {
     THEN,//
     TO,//
     TRUE,//
-    TYPETRUE,//TODO
-    TYPEFALSE,//TODO
+    TYPETRUE,//
+    TYPEFALSE,//
     TYPEINT,//
     TYPESTRING,//
     TYPECHAR,//

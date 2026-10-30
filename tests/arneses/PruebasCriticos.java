@@ -175,6 +175,8 @@ public class PruebasCriticos {
 
     private static void HijoPreservacion(String archivo, String argumento) throws Exception {
         // Salida en UTF-8 para que el padre la lea sin depender de la página de códigos
+        // Avisos: es la salida estándar del hijo; cerrarla la cerraría para todo el proceso
+        @SuppressWarnings("resource")
         PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
         boolean huboExcepcion = false;
         String ruta = NormalizarComoMain(argumento);
@@ -446,7 +448,7 @@ public class PruebasCriticos {
     }
 
     // EvaluateIdentifier vía Evaluator.Evaluate: lo que no es Objeto da 303 sin lanzar; una variable se resuelve
-    @SuppressWarnings("unchecked")
+    //@SuppressWarnings("unchecked")
     private static void UnitariasEvaluateIdentifier() {
         String[][] casos = {{"inicio", ""}, {"BEGIN", "BEGIN"}, {"END", "END"}, {"ausente", null}};
         for (String[] c : casos) {

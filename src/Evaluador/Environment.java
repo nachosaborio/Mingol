@@ -2,8 +2,11 @@ package Evaluador;
 
 import java.util.HashMap;
 
-// El mapa heredado (crudo) sigue guardando variables y marcas BEGIN/END (DM1)
-public class Environment extends HashMap{
+// Avisos: mapa heredado parametrizado (claves = nombres; valores = Objeto o marcas "BEGIN"/"END"/"") (DM1)
+public class Environment extends HashMap<String, Object> {
+
+    // Avisos: HashMap es Serializable; versión fija para que javac no avise
+    private static final long serialVersionUID = 1L;
 
     // Variable -> tipo declarado ("INT", "REAL" o "CHAR") (DM2)
     private final HashMap<String, String> tipos = new HashMap<>();

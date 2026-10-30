@@ -723,6 +723,8 @@ public class PruebasEntrada {
     }
 
     // Motivos (DQ1) de las mismas situaciones, calculados en este equipo con el oráculo del arnés
+    // Avisos: el recurso del try se abre solo para provocar el fallo que se prueba (no se lee)
+    @SuppressWarnings("try")
     private static Map<String, String> Motivos(Path dir) throws Exception {
         Map<String, String> m = new LinkedHashMap<>();
         BorrarArbol(dir);
@@ -1451,6 +1453,8 @@ public class PruebasEntrada {
     }
 
     // U5: BorrarA68Viejo (E6, E12, E21; DQ3, DE6)
+    // Avisos: el recurso del try se abre solo para provocar el fallo que se prueba (no se lee)
+    @SuppressWarnings("try")
     private static void U5(Path dir, Map<String, String> motivos) throws Exception {
         Method m = Metodo("BorrarA68Viejo", Path.class, Path.class);
         byte[] viejo = VIEJO_A68.getBytes(StandardCharsets.ISO_8859_1);
@@ -1528,6 +1532,8 @@ public class PruebasEntrada {
     }
 
     // U6: CopiarA68 (E10, E12, E17; DQ3, DQ7, DE5, DE6) y los 50 contenidos generados
+    // Avisos: el recurso del try se abre solo para provocar el fallo que se prueba (no se lee)
+    @SuppressWarnings("try")
     private static void U6(Path dir, Map<String, String> motivos) throws Exception {
         Method m = Metodo("CopiarA68", Path.class, Path.class);
         byte[] viejo = VIEJO_A68.getBytes(StandardCharsets.ISO_8859_1);
