@@ -18,12 +18,14 @@
 //                        cadena de GetErrors()), casos obligatorios, bordes de fin de comando, L4, AST,
 //                        evaluador y la copia de proyecto.mingol. Desde el pendiente 2 (tarea 3.4)
 //                        suma también los casos del modo cierres (k01–k30 y q01–q09); desde el
-//                        pendiente 3 (tarea 3.4), los del modo palabras (w01–w25 y v01–v31).
+//                        pendiente 3 (tarea 3.4), los del modo palabras (w01–w25 y v01–v31); desde el
+//                        pendiente 12 (tarea 3.4), los del modo restos (y01–y24 y z01–z16).
 //   propiedades       -> tarea 3.9: 300 semillas por familia (válidos, una sola falta, dominio de
 //                        preservación contra el oráculo de la tarea 2) y validez con TestProyecto en
 //                        las primeras 50 de cada familia. Desde el pendiente 2 (tarea 3.4) suma la
 //                        familia cierres-prop (300 programas); desde el pendiente 3 (tarea 3.4),
-//                        la familia palabras-prop (200 programas).
+//                        la familia palabras-prop (200 programas); desde el pendiente 12 (tarea 3.4),
+//                        la familia restos-prop (200 programas).
 //   hijolote <lista>  -> interno: analiza en un hijo (R8) un lote de fuentes y deja un .dump por fuente.
 //   cierres           -> pendiente 2 (P1–P4): k01–k30 (grupo bug, archivo exacto) y la propiedad
 //                        generada cierres-prop (300 programas, semilla fija). Fallaba en df34c72;
@@ -33,6 +35,10 @@
 //                        propiedad generada palabras-prop (200 programas, semilla fija). Debe FALLAR
 //                        en a251e7c (newline/EQ…GE dan 205 y OR da advertencia) y pasar tras el arreglo.
 //                        Grupo pres (v01–v31, Property 2): debe PASAR antes y después del arreglo.
+//   restos            -> pendiente 12 (B1–B4): y01–y24 (grupo bug, archivo exacto) y la propiedad
+//                        generada restos-prop (200 programas, semilla fija). Fallaba en 6d2a6ea;
+//                        pasa tras el arreglo.
+//                        Grupo pres (z01–z16, Property 2): debe PASAR antes y después del arreglo.
 //
 // Solo usa API presente antes y después del arreglo; los nodos nuevos (Declaracion, Asignacion,
 // Secuencia) se miran por reflexión, para que el arnés compile también contra 24f9001.
@@ -111,7 +117,7 @@ public class PruebasSintaxis {
     public static void main(String[] args) throws Exception {
         if (args.length == 0) {
             System.err.println("Uso: PruebasSintaxis exploracion | capturar [--sobrescribir] | preservacion | unitarias"
-                    + " | propiedades | cierres | palabras | hijotp <archivo> | hijocap <archivo> | hijolote <lista>");
+                    + " | propiedades | cierres | palabras | restos | hijotp <archivo> | hijocap <archivo> | hijolote <lista>");
             System.exit(2);
         }
         switch (args[0]) {
@@ -148,6 +154,10 @@ public class PruebasSintaxis {
             // Pendiente 3 (N1, N2): palabras de MINGOL al comienzo de un comando
             case "palabras":
                 Palabras();
+                break;
+            // Pendiente 12 (B1–B4): lo que sigue a BEGIN, a una etiqueta, a un ELSE al comienzo o a ALGOL
+            case "restos":
+                Restos();
                 break;
             default:
                 System.err.println("Modo desconocido: " + args[0]);
@@ -1529,7 +1539,8 @@ public class PruebasSintaxis {
         c.add(U("2.10", "u2_10a", "BEGIN xx", "INT a;", "IF ( a > 0 ) THEN;", "SKIP", "ELSE;", "SKIP", "FI;",
                 "FOR a FROM 1 BY 1 TO 2 DO;", "SKIP", "OD;", "inicio: print ( newline );", "fin: ;",
                 "print ( newline ); print ( newline );", "SKIP; xx", "END;")
-                .m(1, E202("BEGIN", "xx")).m(3, E202("THEN", ";")).m(5, E202("ELSE", ";")).m(8, E202("DO", ";"))
+                // Pendiente 12 (B1, DT3): el resto de BEGIN xx se analiza: suma 205 [xx]
+                .m(1, E202("BEGIN", "xx"), E205("xx")).m(3, E202("THEN", ";")).m(5, E202("ELSE", ";")).m(8, E202("DO", ";"))
                 .m(11, E202("ETIQUETA", "print")).m(12, E202("ETIQUETA", ";")).m(13, E202("SEMICOLON", "print"))
                 .m(14, E202("SEMICOLON", "xx")).m(15, E202("END", ";"))
                 .cad("\tLinea 1 Error 202: no puede haber nada en la línea luego del token BEGIN"));
@@ -1669,6 +1680,8 @@ public class PruebasSintaxis {
         ComprobarCasos(trabajo, CasosCierres(), "k");
         // Pendiente 3 (tarea 3.4): w01–w25 y v01–v31 también en CI
         ComprobarCasos(trabajo, CasosPalabras(), "w");
+        // Pendiente 12 (tarea 3.4): y01–y24 y z01–z16 también en CI
+        ComprobarCasos(trabajo, CasosRestos(), "y");
         // Meta (2.24): copia de proyecto.mingol en la subcarpeta proyecto, TestProyecto en un hijo
         Proyecto(base);
         ResumenSimple("unitarias");
@@ -2183,6 +2196,306 @@ public class PruebasSintaxis {
                 + " (con línea palabra " + prop[1] + "/" + prop[0] + ", sin línea palabra " + prop[3] + "/" + prop[2] + ")");
         System.out.println("Total: " + (casos.size() + SEMILLAS_PALABRAS) + ", FALLA: " + (fallas + fallasProp)
                 + ", OK: " + (casos.size() + SEMILLAS_PALABRAS - fallas - fallasProp));
+        System.exit(fallas + fallasProp == 0 ? 0 : 1);
+    }
+
+    // ------------------------------------------------------------------
+    // Pendiente 12 (B1–B4, DT1–DT10): modo restos (spec mingol-cierres-tras-linea-fix)
+    // ------------------------------------------------------------------
+
+    // Pendiente 12: IF5 = IF4 / print ( newline ), seguido de las líneas dadas
+    private static String[] IF5(String... resto) {
+        List<String> l = new ArrayList<>();
+        l.add("print ( newline )");
+        l.addAll(Arrays.asList(resto));
+        return IF4(l.toArray(new String[0]));
+    }
+
+    // Pendiente 12 (Property 1): y01–y24 del diseño (grupo bug), archivo exacto; mensajes de cada
+    // línea en el orden del archivo de errores (errores antes que advertencias)
+    private static List<Caso> CasosRestos() {
+        List<Caso> c = new ArrayList<>();
+        String P = "print ( newline )";
+        // DT1: el 204 [EOL] de la línea 5 se mantiene (la línea 6 empieza con etiqueta)
+        c.add(U("bug", "y01", IF5("inicio: FI;", "SKIP", "END")).m(5, E204Eol()).m(6, E202("ETIQUETA", "FI")));
+        // B1: BEGIN END cierra el programa (217, sin 308); cadena de GetErrors() de hoy
+        c.add(U("bug", "y02", "BEGIN END").m(1, E202("BEGIN", "END"), E217())
+                .cad("\tLinea 1 Error 202: no puede haber nada en la línea luego del token BEGIN"));
+        c.add(U("bug", "y03", "BEGIN SKIP", "END").m(1, E202("BEGIN", "SKIP")));
+        // El archivo de errores no cambia (el SKIP evita el 217): el print del resto se ve en el AST
+        c.add(U("bug", "y04", "BEGIN " + P + ";", "SKIP", "END").m(1, E202("BEGIN", "print"))
+                .ast("cuenta.Print", "1"));
+        // B1: la declaración de la línea de BEGIN se registra (sin 303 en cascada)
+        c.add(U("bug", "y05", "BEGIN INT a;", "a := 1;", "print ( (a) )", "END").m(1, E202("BEGIN", "INT")));
+        // DT1: con ';' en la línea 5 no hay 206
+        c.add(U("bug", "y06", IF4(P + ";", "inicio: FI;", "SKIP", "END")).m(6, E202("ETIQUETA", "FI")));
+        // B2: el comando de la línea de la etiqueta cuenta en la consecuencia
+        c.add(U("bug", "y07", IF4("inicio: " + P, "FI;", "SKIP", "END")).m(5, E202("ETIQUETA", "print"))
+                .ast("If.consecuencia", "2"));
+        // B3: ELSE FI; da 202 y 216 (rama else vacía)
+        c.add(U("bug", "y08", IF5("ELSE FI;", "SKIP", "END")).m(6, E202("ELSE", "FI"), E216("FI")));
+        c.add(U("bug", "y09", IF5("ELSE " + P, "FI;", "SKIP", "END")).m(6, E202("ELSE", "print"))
+                .ast("If.alternativa", "1"));
+        c.add(U("bug", "y10", IF5("ELSE " + P + ";", P, "FI;", "SKIP", "END")).m(6, E202("ELSE", "print"))
+                .ast("If.alternativa", "2"));
+        // B4: advertencia y C(x) con el cierre aplicado; cadena de GetErrors() del pendiente 2
+        c.add(U("bug", "y11", IF4(P + ";", "LONG x FI;", "SKIP", "END")).m(6, E202Cierre("FI"), Adv("LONG"))
+                .cad("\tLinea 6 Error 202: FI debe ir solo en su línea"));
+        // DT7: OD, ELSE y END por el mismo camino
+        c.add(U("bug", "y12", FOR4(P + ";", "LONG x OD;", "SKIP", "END")).m(6, E202Cierre("OD"), Adv("LONG")));
+        c.add(U("bug", "y13", IF4(P + ";", "LONG x ELSE", P, "FI;", "SKIP", "END")).m(6, E202Cierre("ELSE"), Adv("LONG"))
+                .ast("If.alternativa", "1"));
+        c.add(U("bug", "y14", "BEGIN", "SKIP;", "LONG x END").m(3, E202Cierre("END"), Adv("LONG")));
+        // DT6: el primer cierre que cierra, en cualquier posición
+        c.add(U("bug", "y15", IF4(P + ";", "LONG x; FI;", "SKIP", "END")).m(6, E202Cierre("FI"), Adv("LONG")));
+        c.add(U("bug", "y16", IF4(P + ";", "LONG x FI y", "SKIP", "END"))
+                .m(6, E202Cierre("FI"), E202("FI", "y"), Adv("LONG")));
+        // DT3: el resto da sus propios mensajes
+        c.add(U("bug", "y17", "BEGIN xx", "SKIP", "END").m(1, E202("BEGIN", "xx"), E205("xx")));
+        // DT2: ';' como primer sobrante se descarta y el resto se analiza
+        c.add(U("bug", "y18", "BEGIN; SKIP", "END").m(1, E202("BEGIN", ";")));
+        // DT4: DC1 extendida a la línea de RestoDeLinea
+        c.add(U("bug", "y19", "BEGIN SKIP END").m(1, E202("BEGIN", "SKIP")));
+        c.add(U("bug", "y20", IF4(P + ";", "inicio: " + P + " FI;", "SKIP", "END")).m(6, E202("ETIQUETA", "print")));
+        c.add(U("bug", "y21", IF5("ELSE " + P + " FI;", "SKIP", "END")).m(6, E202("ELSE", "print"))
+                .ast("If.alternativa", "1"));
+        c.add(U("bug", "y22", "BEGIN xx END").m(1, E202("BEGIN", "xx"), E205("xx")));
+        // DT5: los dos 202 en orden; el FI cierra sin C(FI)
+        c.add(U("bug", "y23", "BEGIN", "INT a;", "a := 1;", "inicio: IF ( a > 0 ) THEN " + P + " FI;", "SKIP", "END")
+                .m(4, E202("ETIQUETA", "IF"), E202("THEN", "print")));
+        // DT9: S9 con ALGOL: 216 (DS1) y el FI cierra sin C(FI)
+        c.add(U("bug", "y24", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN LONG x FI;", "SKIP", "END")
+                .m(4, E202("THEN", "LONG"), E216("FI"), Adv("LONG")));
+
+        // Pendiente 12 (Property 2, tarea 2): z01–z16, grupo pres. Oráculos observados sobre 6d2a6ea
+        // (z03, z05, z06, z08, z12, z13, z14 a mano en %TEMP%\mingol-p12\obs); deben pasar antes y después
+        // DT10: ALGOL como continuación (DS6), C(FI) por DC2
+        c.add(U("pres", "z01", IF5("LONG x FI;", "SKIP", "END")).m(6, E204("SEMICOLON", "ALGOL", "LONG"), E202Cierre("FI")));
+        // DT2: un ';' solo como sobrante, igual que hoy
+        c.add(U("pres", "z02", "BEGIN;", P, "END;").m(1, E202("BEGIN", ";")).m(3, E202("END", ";")));
+        c.add(U("pres", "z03", IF5("ELSE;", P, "FI;", "SKIP", "END")).m(6, E202("ELSE", ";")));
+        c.add(U("pres", "z04", "BEGIN", "fin: ;", P, "END").m(2, E202("ETIQUETA", ";")));
+        // END con sobrante sin cambios (NadaMasEnLaLinea)
+        c.add(U("pres", "z05", "BEGIN", "SKIP", "END SKIP").m(3, E202("END", "SKIP")));
+        // DT8: un FI que no cierra nada se ignora con la línea ALGOL (válido)
+        c.add(U("pres", "z06", "BEGIN", "LONG x FI;", "SKIP", "END").m(2, Adv("LONG")));
+        c.add(U("pres", "z07", "BEGIN", "LONG x;", "SKIP", "END").m(2, Adv("LONG")));
+        // La línea ALGOL no pasa por TerminarComando: sin 206 (válido)
+        c.add(U("pres", "z08", IF4(P + ";", "LONG x;", "FI;", "SKIP", "END")).m(6, Adv("LONG")));
+        // S9
+        c.add(U("pres", "z09", "BEGIN", "INT a;", "a := 1;", "IF ( a > 0 ) THEN " + P + " FI;", "SKIP", "END")
+                .m(4, E202("THEN", "print")));
+        // Cierres y etiqueta solos en su línea: sin mensajes
+        c.add(U("pres", "z10", IF5("ELSE", P, "FI;", "SKIP", "END")).ast("If.alternativa", "1"));
+        c.add(U("pres", "z11", "BEGIN", "inicio:", "GOTO inicio", "END"));
+        // S6: un solo 207/208 por línea
+        c.add(U("pres", "z12", "inicio: SKIP;", "BEGIN", "SKIP", "END").m(1, E207("inicio")));
+        c.add(U("pres", "z13", "BEGIN", "SKIP", "END", "LONG x FI;").m(4, E208("LONG")));
+        // 3.8: ELSE que no continúa ningún IF
+        c.add(U("pres", "z14", "BEGIN", "ELSE SKIP", "END").m(2, E213("ELSE")));
+        // DS1: la instrucción ALGOL no cuenta
+        c.add(U("pres", "z15", "BEGIN", "RETURN 5", "END").m(2, Adv("RETURN")).m(3, E217()));
+        // P4: ELSE pegado a un comando
+        c.add(U("pres", "z16", IF4(P + " ELSE " + P, "FI;", "SKIP", "END")).m(5, E202Cierre("ELSE")));
+        return c;
+    }
+
+    // Programa de restos-prop con su oráculo
+    private static class ProgResto {
+        final List<String> l = new ArrayList<>();
+        final List<String> esperados = new ArrayList<>();   // "línea|mensaje" del lexer y del parser
+        final List<String> datos = new ArrayList<>();       // If.consecuencia/If.alternativa/For.comandos
+        int transformaciones;
+        int etiquetas;
+
+        void Esperado(String mensaje) {
+            esperados.add(l.size() + "|" + mensaje);
+        }
+    }
+
+    private static final int SEMILLAS_RESTOS = 200;
+
+    // Primer token de un comando de CMDS_CIERRES (lexema del 202 de T2/T4)
+    private static String PrimerToken(String cmd) {
+        return cmd.split(" ")[0];
+    }
+
+    // Rama de n comandos (';' salvo el último, que precede a un cierre). T4 (B3): el primero se pega al
+    // ELSE; T2 (B2): una etiqueta delante de un comando (la etiqueta cuenta). Devuelve los comandos de la rama
+    private static int RamaResto(ProgResto p, Random r, int n, boolean conElse, boolean control) {
+        int cuenta = n;
+        boolean t4 = conElse && !control && r.nextInt(3) == 0;
+        if (conElse && !t4) p.l.add("ELSE");
+        for (int j = 0; j < n; j++) {
+            String cmd = CMDS_CIERRES[r.nextInt(CMDS_CIERRES.length)];
+            String texto = cmd + (j == n - 1 ? "" : ";");
+            if (j == 0 && t4) {
+                p.l.add("ELSE " + texto);
+                p.Esperado(E202("ELSE", PrimerToken(cmd)));
+                p.transformaciones++;
+            } else if (!control && r.nextInt(5) == 0) {
+                p.l.add("eti" + (++p.etiquetas) + ": " + texto);
+                p.Esperado(E202("ETIQUETA", PrimerToken(cmd)));
+                p.transformaciones++;
+                cuenta++;
+            } else {
+                p.l.add(texto);
+            }
+        }
+        return cuenta;
+    }
+
+    // Cierre FI;/OD; de una rama: solo (sin cambios), T3 (B2, etiqueta delante) o T5 (B4, ALGOL delante).
+    // En T3/T5 la línea anterior lleva ';' (DT1 (a)) y la etiqueta o la instrucción ALGOL cuentan en la rama
+    private static int CierreResto(ProgResto p, Random r, String cierre, boolean control) {
+        int t = control ? 9 : r.nextInt(4);
+        if (t == 0 || t == 1) {
+            int prev = p.l.size() - 1;
+            p.l.set(prev, p.l.get(prev) + ";");
+        }
+        if (t == 0) {
+            p.l.add("eti" + (++p.etiquetas) + ": " + cierre + ";");
+            p.Esperado(E202("ETIQUETA", cierre));
+            p.transformaciones++;
+            return 1;
+        }
+        if (t == 1) {
+            p.l.add("LONG x " + cierre + ";");
+            p.Esperado(E202Cierre(cierre));
+            p.Esperado(Adv("LONG"));
+            p.transformaciones++;
+            return 1;
+        }
+        p.l.add(cierre + ";");
+        return 0;
+    }
+
+    // BEGIN / INT a, i; / a := 1; / 1 a 3 bloques IF (con o sin ELSE) o FOR / SKIP / END, con T1–T5 al azar
+    // (a lo sumo una por línea); las semillas múltiplo de 10 son de control (sin transformaciones)
+    private static ProgResto GenerarRestos(int semilla) {
+        Random r = Mezclar(semilla * 15485863L + 71);
+        boolean control = semilla % 10 == 0;
+        ProgResto p = new ProgResto();
+        if (!control && r.nextInt(4) == 0) {
+            // T1 (B1)
+            p.l.add("BEGIN INT a, i;");
+            p.Esperado(E202("BEGIN", "INT"));
+            p.transformaciones++;
+        } else {
+            p.l.add("BEGIN");
+            p.l.add("INT a, i;");
+        }
+        p.l.add("a := 1;");
+        int bloques = 1 + r.nextInt(3);
+        for (int b = 0; b < bloques; b++) {
+            if (r.nextBoolean()) {
+                p.l.add("IF ( a > 0 ) THEN");
+                boolean conElse = r.nextBoolean();
+                int c1 = RamaResto(p, r, 1 + r.nextInt(2), false, control);
+                int c2 = -1;
+                if (conElse) {
+                    c2 = RamaResto(p, r, 1 + r.nextInt(2), true, control);
+                    c2 += CierreResto(p, r, "FI", control);
+                } else {
+                    c1 += CierreResto(p, r, "FI", control);
+                }
+                p.datos.add("If.consecuencia=" + c1);
+                p.datos.add("If.alternativa=" + c2);
+            } else {
+                p.l.add("FOR i FROM 1 BY 1 TO 3 DO");
+                int c1 = RamaResto(p, r, 1 + r.nextInt(2), false, control);
+                c1 += CierreResto(p, r, "OD", control);
+                p.datos.add("For.comandos=" + c1);
+            }
+        }
+        p.l.add("SKIP");
+        p.l.add("END");
+        return p;
+    }
+
+    // Pendiente 12 (Property 1): exactamente los mensajes de las transformaciones, ningún otro mensaje
+    // del lexer, del parser ni del evaluador, AST por rama, inválido si y solo si hay alguna transformación
+    private static int[] RestosProp(Path base, Map<String, int[]> cuentas) throws Exception {
+        Path trabajo = base.resolve("restos-prop");
+        BorrarArbol(trabajo);
+        Files.createDirectories(trabajo);
+        Map<String, ProgResto> progs = new LinkedHashMap<>();
+        List<String> archivos = new ArrayList<>();
+        Set<String> conTP = new HashSet<>();
+        for (int s = 1; s <= SEMILLAS_RESTOS; s++) {
+            String a = String.format("r%03d.mingol", s);
+            ProgResto p = GenerarRestos(s);
+            progs.put(a, p);
+            Files.write(trabajo.resolve(a), Bytes(p.l));
+            archivos.add(a);
+            if (s <= SEMILLAS_VALIDEZ) conTP.add(a);
+        }
+        Map<String, String> problemas = new HashMap<>();
+        Map<String, Dump> dumps = CorrerLotes(trabajo, archivos, conTP, "r", problemas);
+        int conT = 0, fallanConT = 0, sinT = 0, fallanSinT = 0;
+        int s = 0;
+        for (String a : archivos) {
+            s++;
+            ProgResto p = progs.get(a);
+            List<String> dif = new ArrayList<>();
+            if (problemas.containsKey(a)) dif.add(problemas.get(a));
+            Columnas(p.l, dif);
+            Dump d = dumps.get(a);
+            if (d != null) {
+                ComprobarComun(d, dif);
+                CompararMulticonjunto("lexer/parser", p.esperados, Todos(d.m), dif);
+                if (!d.v.isEmpty()) dif.add("mensajes del evaluador: " + Todos(d.v));
+                List<String> datosObt = new ArrayList<>();
+                for (String x : d.ast) if (x.startsWith("If.") || x.startsWith("For.")) datosObt.add(x);
+                CompararMulticonjunto("AST (bloques)", p.datos, datosObt, dif);
+                if (d.tp != null) {
+                    ComprobarValidez(d, trabajo, a, dif);
+                    boolean valido = p.transformaciones == 0;
+                    if (!String.valueOf(valido).equals(d.tp)) dif.add("TestProyecto esperado " + valido + ", obtenido " + d.tp);
+                }
+            }
+            if (p.transformaciones > 0) {
+                conT++;
+                if (!dif.isEmpty()) fallanConT++;
+            } else {
+                sinT++;
+                if (!dif.isEmpty()) fallanSinT++;
+            }
+            RegistrarProp("restos-prop", s, p.transformaciones + " transformaciones", p.l, dif, cuentas);
+        }
+        System.out.println("restos-prop: " + SEMILLAS_RESTOS + " programas; con alguna transformación " + conT
+                + " (FALLA " + fallanConT + "), sin transformaciones " + sinT + " (FALLA " + fallanSinT + ")");
+        return new int[]{conT, fallanConT, sinT, fallanSinT};
+    }
+
+    // Pendiente 12: total por grupo y resumen de la propiedad, como Cierres() y Palabras()
+    private static void Restos() throws Exception {
+        Path base = CarpetaSegura();
+        Path trabajo = base.resolve("restos");
+        BorrarArbol(trabajo);
+        Files.createDirectories(trabajo);
+        List<Caso> casos = CasosRestos();
+        ComprobarCasos(trabajo, casos, "y");
+        int[] prop = RestosProp(base, new LinkedHashMap<>());
+        System.out.println();
+        System.out.println("===== RESUMEN restos =====");
+        Map<String, int[]> porGrupo = new LinkedHashMap<>();
+        for (Caso c : casos) {
+            int[] g = porGrupo.computeIfAbsent(c.grupo, k -> new int[2]);
+            g[0]++;
+            if (Boolean.TRUE.equals(fallo.get(c.id))) g[1]++;
+        }
+        for (Map.Entry<String, int[]> e : porGrupo.entrySet()) {
+            System.out.println("Grupo " + e.getKey() + ": " + e.getValue()[0] + " casos, FALLA: " + e.getValue()[1]
+                    + ", OK: " + (e.getValue()[0] - e.getValue()[1]));
+        }
+        List<String> pasan = new ArrayList<>();
+        for (Caso c : casos) if (!Boolean.TRUE.equals(fallo.get(c.id))) pasan.add(c.id);
+        System.out.println("Casos que pasan: " + (pasan.isEmpty() ? "ninguno" : pasan));
+        System.out.println("restos-prop: " + SEMILLAS_RESTOS + " programas, FALLA: " + fallasProp
+                + " (con transformación " + prop[1] + "/" + prop[0] + ", sin transformación " + prop[3] + "/" + prop[2] + ")");
+        System.out.println("Total: " + (casos.size() + SEMILLAS_RESTOS) + ", FALLA: " + (fallas + fallasProp)
+                + ", OK: " + (casos.size() + SEMILLAS_RESTOS - fallas - fallasProp));
         System.exit(fallas + fallasProp == 0 ? 0 : 1);
     }
 
@@ -2705,6 +3018,9 @@ public class PruebasSintaxis {
                     x.t += " xx";
                     String despues = x.k.equals("LABEL") ? "ETIQUETA" : (x.k.equals("BEGIN") || x.k.equals("END") || x.k.equals("ELSE")) ? x.k : "SEMICOLON";
                     m.esperados.add(new Object[]{x, E202(despues, "xx")});
+                    // Pendiente 12 (B1–B3, DT3): el resto se analiza: suma 205 [xx]
+                    if (x.k.equals("BEGIN") || x.k.equals("LABEL") || x.k.equals("ELSE"))
+                        m.esperados.add(new Object[]{x, E205("xx")});
                 }
                 return m;
             }
@@ -3053,6 +3369,8 @@ public class PruebasSintaxis {
         CierresProp(base, cuentas);
         // Pendiente 3 (tarea 3.4): palabras-prop (200 programas) como una familia más
         PalabrasProp(base, cuentas);
+        // Pendiente 12 (tarea 3.4): restos-prop (200 programas) como una familia más
+        RestosProp(base, cuentas);
 
         // Clases de mutación cubiertas
         Map<String, Integer> clases = new TreeMap<>();

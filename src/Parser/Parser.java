@@ -69,7 +69,8 @@ public class Parser {
     // Bloques IF / FOR abiertos (214/215 en 3.6)
     private int ifsAbiertos = 0;
     private int forsAbiertos = 0;
-    // Pendiente 2 (DC1): línea física del último THEN/DO que dio el 202 de S9
+    // Pendiente 2 (DC1): línea física del último THEN/DO que dio el 202 de S9, o
+    // (pendiente 12, DT4) de BEGIN/etiqueta/ELSE que dio el 202 de RestoDeLinea
     // (las líneas solo crecen: no hace falta reiniciarla)
     private int lineaS9 = -1;
     // Pendiente 2 (P4): ELSE que llegó pegado a un comando (camino nuevo)
@@ -379,14 +380,49 @@ public class Parser {
         }
     }
 
-    // Cambio 9: BEGIN, END, ELSE y etiqueta van solos en su línea. Avanza; si hay
-    // algo antes del EOL/EOF → 202 con el primer sobrante y se salta la línea física
+    // Cambio 9: END va solo en su línea. Avanza; si hay algo antes del EOL/EOF → 202
+    // con el primer sobrante y se salta la línea física. Pendiente 12: ya solo lo usa
+    // END (BEGIN, etiqueta y ELSE al comienzo pasan por RestoDeLinea)
     private void NadaMasEnLaLinea(MingolToken palabra) {
         AdvanceToken();
         if (currentToken.getTokenType() != MingolToken.EOL
                 && currentToken.getTokenType() != MingolToken.EOF) {
             Error202(palabra, currentToken);
             SaltarLineaFisica();
+        }
+    }
+
+    // Pendiente 12 (B1–B3): BEGIN, etiqueta o ELSE al comienzo. 202 con el primer
+    // sobrante, pero sin saltar la línea, como S9: el resto se analiza
+    private void RestoDeLinea(MingolToken palabra) {
+        int linea = currentToken.getLine();
+        AdvanceToken();
+        if (currentToken.getTokenType() == MingolToken.SEMICOLON) {
+            // DT2 (a): ';' como primer sobrante → 202 [;] y se descarta, como FinDeCabecera
+            Error202(palabra, currentToken);
+            lineaS9 = linea;   // DT4 (a)
+            AdvanceToken();
+            return;
+        }
+        if (currentToken.getTokenType() != MingolToken.EOL
+                && currentToken.getTokenType() != MingolToken.EOF) {
+            Error202(palabra, currentToken);
+            // DT4 (a): los cierres del resto aplican su efecto sin C(x) (DC1 extendida)
+            lineaS9 = linea;
+        }
+    }
+
+    // Pendiente 12 (B4): como SaltarLineaFisica, pero el primer cierre que cierra
+    // (en cualquier posición, DT6; los cuatro cierres, DT7; solo si cierra, DT8)
+    // va por CierrePegado y queda como token actual para aplicar su efecto
+    private void SaltarLineaAlgol() {
+        while (currentToken.getTokenType() != MingolToken.EOL
+                && currentToken.getTokenType() != MingolToken.EOF) {
+            if (EsCierreQueCierra(currentToken)) {
+                CierrePegado();
+                return;
+            }
+            AdvanceToken();
         }
     }
 
@@ -715,7 +751,8 @@ public class Parser {
                 elsePegado = null;
                 SeguirTrasElsePegado();
             } else {
-                NadaMasEnLaLinea(MingolToken.ELSE);
+                // Pendiente 12 (B3): ELSE al comienzo; el resto de la línea es la rama else
+                RestoDeLinea(MingolToken.ELSE);
             }
             nodo.setAlternative(ParseBlock(MingolToken.IF, MingolToken.FI));
         }
@@ -980,22 +1017,25 @@ public class Parser {
         return new ExpressionStatement(tokenSkip, new Skip(tokenSkip));
     }
 
-    // Cambio 17 (REQ-LABEL-01): nodo Etiqueta como hoy; nada más en la línea (202)
+    // Cambio 17 (REQ-LABEL-01): nodo Etiqueta como hoy; nada más en la línea (202,
+    // pendiente 12: sin saltar el resto)
     private Statement ParseEtiquetaComando() {
         Token tokenEtiqueta = currentToken;
         Etiqueta etiqueta = new Etiqueta(tokenEtiqueta, tokenEtiqueta.getLiteral());
-        NadaMasEnLaLinea(MingolToken.ETIQUETA);
+        // Pendiente 12 (B2): 202 con el primer sobrante y el resto se analiza
+        RestoDeLinea(MingolToken.ETIQUETA);
         return new ExpressionStatement(tokenEtiqueta, etiqueta);
     }
 
     // Cambio 17 (REQ-ALGOL-01): instrucción ALGOL en posición de comando (también
     // TRUE/FALSE, L7). Misma advertencia y cadena que ParseAlgol, en la línea del
-    // token; se ignora el resto de la línea física
+    // token; se ignora el resto de la línea física salvo un cierre que cierra (B4)
     private Statement ParseAlgolComando() {
         Token tokenAlgol = currentToken;
         errors.add("\tLinea "+ tokenAlgol.getLine() +" ADVERTENCIA: Instruccion " + tokenAlgol.getLiteral() + " no soportada por esta version");
         mensajes.add(Mensaje.Advertencia(tokenAlgol.getLine(), tokenAlgol.getLiteral()));
-        SaltarLineaFisica();
+        // Pendiente 12 (B4): el salto se detiene en un cierre que cierra
+        SaltarLineaAlgol();
         return new ExpressionStatement(tokenAlgol, new Expression(tokenAlgol));
     }
 
@@ -1308,7 +1348,8 @@ public class Parser {
                     vistoBegin = true;
                     seccion = Seccion.VARIABLES;
                 }
-                NadaMasEnLaLinea(MingolToken.BEGIN);
+                // Pendiente 12 (B1): 202 con el primer sobrante y el resto se analiza
+                RestoDeLinea(MingolToken.BEGIN);
                 return new Statement(tokenBegin);
             }
             case END: {
