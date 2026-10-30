@@ -6,14 +6,9 @@
 //   ejemplos      -> tarea 1: Property 1 (Bug Condition) sobre t1..t13, c1, c6 y e8, más el borde
 //                    de la causa 4 (-ea con el AST parcial de t7 y e8) y la revisión de las causas 1..8.
 //   hijo <id> <argumento> [evaluar] -> interno: un caso aislado (TestProyecto por reflexión, nunca main).
-//   capturar [--sobrescribir] -> tarea 2: guarda en %TEMP%\mingol-errores-golden\ el comportamiento del
-//                    código SIN arreglar para las semillas 1..200 y t1..t13, c1, c6, e8.
-//   preservacion [--sin-normalizar] -> tarea 2: Property 2 contra la captura. --sin-normalizar desactiva
-//                    el cambio tabulador -> espacio (solo para la corrida de control antes del arreglo).
-//                    Tarea 3: además, en TODOS los casos, Property 3 (GetErrors() idéntico, correspondencia
-//                    con GetMensajes() por reflexión, Inspect() del evaluador), 3.11, R6 y R7.
-//   hijopres <archivo> <argumento> -> interno de capturar/preservacion (un caso en su carpeta).
-//   hijoreglas    -> interno de preservacion (tarea 3): 3.11 y los arreglos originales (R6).
+//   hijopres <archivo> <argumento> -> interno de propiedades y main (un caso en su carpeta; DL1).
+//   Pendiente 8: se retiraron capturar, preservacion y hijoreglas (su captura golden ya no existe y
+//                    comparaban el comportamiento del código sin arreglar).
 //   unitarias     -> tarea 4.8 (en proceso): Mensaje, ArchivoErrores, NombrePrograma/RutaA68/MismoArchivo,
 //                    líneas de tokens del Lexer, GetMensajes() de e8 y el Evaluator.
 //   propiedades   -> tarea 4.8: semillas 1..200 en hijos; formato y orden (Property 1), independencia
@@ -46,7 +41,6 @@ import Lexer.MingolToken;
 import Lexer.Token;
 import Parser.Parser;
 import Parser.Program;
-import Parser.Statement;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -118,7 +112,7 @@ public class PruebasArchivoErrores {
         boolean crlf;          // Área 5 (E10): líneas separadas con \r\n en lugar de \n (t14)
         String nombreErrores;  // <archivo sin carpetas ni extensión>-errores.txt, en la carpeta actual
         String rutaA68;        // donde la deja RutaA68
-        boolean generado;      // true si sale del generador (tarea 2); los esperados de Examples no aplican
+        boolean generado;      // true si sale del generador; sin lectura desde el pendiente 8 (la usaba la captura)
         Map<Integer, List<String>> bajoLinea = new LinkedHashMap<>();
         List<String> finales = new ArrayList<>();
 
@@ -261,7 +255,8 @@ public class PruebasArchivoErrores {
     public static void main(String[] args) throws Exception {
         if (args.length == 0) {
             // Modos públicos (los internos no se listan)
-            System.err.println("Uso: PruebasArchivoErrores <ejemplos|capturar|preservacion|unitarias|propiedades|main>");
+            // Pendiente 8: sin capturar ni preservacion
+            System.err.println("Uso: PruebasArchivoErrores <ejemplos|unitarias|propiedades|main>");
             System.exit(2);
         }
         switch (args[0]) {
@@ -273,21 +268,10 @@ public class PruebasArchivoErrores {
                 Hijo(args.length > 1 ? args[1] : "", args.length > 2 ? args[2] : "",
                         args.length > 3 && args[3].equals("evaluar"));
                 break;
-            case "capturar":
-                // Tarea 2: captura del comportamiento base (solo antes del arreglo)
-                Capturar(args.length > 1 && args[1].equals("--sobrescribir"));
-                break;
-            case "preservacion":
-                // Tarea 2: Property 2; la normalización del separador se desactiva solo en la corrida de control
-                Preservacion(!(args.length > 1 && args[1].equals("--sin-normalizar")));
-                break;
+            // Pendiente 8: capturar, preservacion e hijoreglas caen en default (Modo desconocido)
             case "hijopres":
-                // Interno: un caso de captura/preservación en la carpeta actual
+                // Interno de propiedades y main (DL1): un caso en la carpeta actual
                 HijoPres(args.length > 2 ? args[2] : "");
-                break;
-            case "hijoreglas":
-                // Interno (tarea 3): 3.11 y los arreglos originales (R6)
-                HijoReglas();
                 break;
             case "unitarias":
                 // Tarea 4.8: pruebas unitarias en proceso
@@ -320,7 +304,7 @@ public class PruebasArchivoErrores {
             System.exit(2);
         }
         List<Caso> casos = Casos();
-        // Área 5 (E10): t14 solo en ejemplos (capturar/preservacion sin cambios)
+        // Área 5 (E10): t14 solo en ejemplos
         casos.add(T14());
         // Escribe todos los fuentes antes de lanzar hijos (causa 7 usa c6 y t4)
         for (Caso c : casos) {
@@ -578,10 +562,9 @@ public class PruebasArchivoErrores {
     private static final String[] VARS_G = {"a", "b", "c", "x", "y", "total"};
     private static final String[] ETIQ_G = {"inicio", "fin", "otra"};
 
-    // Programa de la semilla s (determinista: la preservación lo vuelve a generar y compara los bytes).
-    // La mitad de las semillas tiende a programas sin mensajes (repertorio "limpio"), para que Property 2
-    // tenga muchos casos; la otra mitad mezcla todo el repertorio del diseño. Qué programa es
-    // preservable no lo decide el generador sino lo observado en la captura (sin mensajes).
+    // Programa de la semilla s (determinista: la misma semilla da los mismos bytes).
+    // La mitad de las semillas tiende a programas sin mensajes (repertorio "limpio"); la otra mitad
+    // mezcla todo el repertorio del diseño. Pendiente 8: ya no lo usa la preservación, solo propiedades.
     private static Caso Generar(int semilla) {
         // Semilla mezclada: con new Random(s) y s consecutivos pequeños el primer nextBoolean() sale igual
         Random r = new Random(semilla * 0x9E3779B97F4A7C15L + 0x632BE59BD9B4E019L);
@@ -754,350 +737,14 @@ public class PruebasArchivoErrores {
     }
 
     // ------------------------------------------------------------------
-    // Tarea 2: modo capturar (código SIN arreglar)
+    // Correspondencia GetErrors() <-> GetMensajes() (unitarias) y utilidades de la huella
+    // (Pendiente 8: sin la detección de la preservación)
     // ------------------------------------------------------------------
-
-    // Casos de captura: t1..t13, c1, c6, e8 y las semillas 1..200
-    private static List<Caso> CasosCaptura() {
-        List<Caso> casos = new ArrayList<>(Casos());
-        for (int s = 1; s <= 200; s++) casos.add(Generar(s));
-        return casos;
-    }
-
-    private static void Capturar(boolean sobrescribir) throws Exception {
-        Path carpeta = CarpetaSegura();
-        Path golden = CarpetaGolden();
-        // La captura es la referencia de la tarea 4.10: no se pisa sin pedirlo
-        if (Files.exists(golden)) {
-            if (!sobrescribir) {
-                System.err.println("Ya existe la captura " + golden + ". No se regenera (usar --sobrescribir solo antes del arreglo).");
-                System.exit(2);
-            }
-            BorrarArbol(golden);
-        }
-        Files.createDirectories(golden);
-        Path trabajo = carpeta.resolve("captura");
-        BorrarArbol(trabajo);
-        Path logs = carpeta.resolve("logs-captura");
-        BorrarArbol(logs);
-        System.out.println("Captura en: " + golden);
-        System.out.println("Carpeta de trabajo: " + trabajo);
-
-        List<Caso> casos = CasosCaptura();
-        Map<String, byte[]> fuentes = new LinkedHashMap<>();
-        for (Caso c : casos) fuentes.put(c.id, c.bytes());
-        Map<String, ResultadoHijo> res = CorrerCasos(casos, fuentes, trabajo, logs);
-
-        StringBuilder indice = new StringBuilder();
-        Map<String, List<String>> metas = new LinkedHashMap<>();
-        int preservables = 0, preservablesGenerados = 0;
-        for (Caso c : casos) {
-            ResultadoHijo r = res.get(c.id);
-            List<String> dif = new ArrayList<>();
-            ProblemasDeEjecucion(r, dif);
-            // Se guarda todo (también con problemas): fuente, huella y archivos que dejó TestProyecto
-            Path destino = golden.resolve(c.id);
-            Files.createDirectories(destino.resolve("archivos"));
-            Files.write(destino.resolve("fuente.bin"), fuentes.get(c.id));
-            List<String> meta = LineasMeta(r.stdout);
-            Files.write(destino.resolve("meta.txt"), meta, StandardCharsets.UTF_8);
-            Path dir = trabajo.resolve(c.id);
-            for (String rel : ArchivosRec(dir)) {
-                Path d = destino.resolve("archivos").resolve(rel);
-                if (d.getParent() != null) Files.createDirectories(d.getParent());
-                Files.copy(dir.resolve(rel), d);
-            }
-            indice.append(c.id).append('\t').append(c.archivo).append('\t').append(c.argumento).append('\t')
-                    .append(c.generado ? "generado" : "fijo").append('\n');
-            metas.put(c.id, meta);
-            boolean p = Preservable(c.archivo, meta);
-            if (p) {
-                preservables++;
-                if (c.generado) preservablesGenerados++;
-                // Sin mensajes: el -errores.txt es solo la copia numerada (con tabulador en F)
-                ComprobarSoloCopia(c, destino.resolve("archivos"), dif);
-            }
-            Registrar("captura " + c.id + (p ? " (sin mensajes)" : ""), dif, r);
-        }
-        Files.write(golden.resolve("indice.txt"), indice.toString().getBytes(StandardCharsets.UTF_8));
-
-        ObservacionesCaptura(metas, golden);
-
-        System.out.println();
-        System.out.println("Casos capturados: " + casos.size() + "; sin mensajes (isBugCondition falso): " + preservables
-                + " (generados: " + preservablesGenerados + " de 200)");
-        if (preservablesGenerados < 20) System.out.println("AVISO: pocas semillas sin mensajes; revisar el generador");
-        ImprimirResumen("capturar");
-    }
-
-    // isBugCondition falso según lo observado en F: ningún mensaje (parser sin cadenas, evaluador sin
-    // errores, TestProyecto=true) y ningún punto en las carpetas de la ruta
-    private static boolean Preservable(String archivo, List<String> meta) {
-        Path padre = Paths.get(archivo).getParent();
-        boolean puntoEnCarpetas = padre != null && padre.toString().contains(".");
-        return !puntoEnCarpetas
-                && meta.contains("GETERRORS_TOTAL|0")
-                && meta.contains("TESTPROYECTO|true")
-                && meta.stream().anyMatch(m -> m.startsWith("HASERRORS|") && m.endsWith("|evaluator=false"));
-    }
-
-    // El -errores.txt de un programa sin mensajes es exactamente "%05d<TAB>línea" por cada línea
-    private static void ComprobarSoloCopia(Caso c, Path archivos, List<String> dif) throws IOException {
-        Path errores = archivos.resolve(c.nombreErrores);
-        if (!Files.exists(errores)) {
-            dif.add("no existe " + c.nombreErrores);
-            return;
-        }
-        // Líneas tal como las lee TestProyecto (BufferedReader): un "" final sin salto no cuenta como línea
-        List<String> lineas = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new java.io.StringReader(new String(c.bytes(), StandardCharsets.ISO_8859_1)))) {
-            String s;
-            while ((s = br.readLine()) != null) lineas.add(s);
-        }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < lineas.size(); i++) sb.append(String.format("%05d", i + 1)).append('\t').append(lineas.get(i)).append('\n');
-        String real = new String(Files.readAllBytes(errores), StandardCharsets.ISO_8859_1);
-        if (!real.equals(sb.toString())) dif.add(c.nombreErrores + " no es solo la copia numerada: [" + Escapar(real) + "]");
-    }
-
-    // Lo que la tarea 2 pide observar en el código sin arreglar
-    private static void ObservacionesCaptura(Map<String, List<String>> metas, Path golden) throws IOException {
-        System.out.println();
-        System.out.println("===== OBSERVACIONES (código sin arreglar) =====");
-        // t4 y t10: solo la copia numerada y TestProyecto=true
-        for (String id : new String[]{"t4", "t10"}) {
-            List<String> dif = new ArrayList<>();
-            List<String> meta = metas.get(id);
-            String archivo = id.equals("t10") ? "T10.MINGOL" : id + ".mingol";
-            if (meta == null || !Preservable(archivo, meta)) dif.add(id + " con mensajes o TestProyecto distinto de true: " + meta);
-            Registrar("observación " + id + " sin mensajes y TestProyecto=true", dif, null);
-        }
-        // Nombres de salida (3.7, 3.8, 2.14)
-        Observar(golden, "t1", new String[]{"t1-errores.txt", "t1.a68"}, null);
-        Observar(golden, "t12", new String[]{"t12-errores.txt", "t12.a68"}, null);
-        Observar(golden, "t10", new String[]{"T10-errores.txt", "T10.a68"}, "T10.MINGOL");
-    }
-
-    // Existen los archivos esperados y, si se indica, el fuente quedó intacto
-    private static void Observar(Path golden, String id, String[] archivos, String fuente) throws IOException {
-        List<String> dif = new ArrayList<>();
-        Path dir = golden.resolve(id).resolve("archivos");
-        for (String a : archivos) if (!Files.exists(dir.resolve(a))) dif.add("no existe " + a + " (hay: " + ArchivosRec(dir) + ")");
-        if (fuente != null) {
-            byte[] original = Files.readAllBytes(golden.resolve(id).resolve("fuente.bin"));
-            if (!Files.exists(dir.resolve(fuente)) || !Arrays.equals(original, Files.readAllBytes(dir.resolve(fuente)))) {
-                dif.add("el fuente " + fuente + " cambió");
-            }
-        }
-        Registrar("observación " + id + " -> " + String.join(", ", archivos) + (fuente != null ? ", fuente intacto" : ""), dif, null);
-    }
-
-    // ------------------------------------------------------------------
-    // Tarea 2: modo preservacion (Property 2)
-    // ------------------------------------------------------------------
-
-    private static void Preservacion(boolean normalizar) throws Exception {
-        Path carpeta = CarpetaSegura();
-        Path golden = CarpetaGolden();
-        Path indice = golden.resolve("indice.txt");
-        if (!Files.exists(indice)) {
-            System.err.println("No existe la captura " + indice + ": correr antes 'capturar' en el código sin arreglar.");
-            System.exit(2);
-        }
-        Path trabajo = carpeta.resolve("preservacion");
-        BorrarArbol(trabajo);
-        Path logs = carpeta.resolve("logs-preservacion");
-        BorrarArbol(logs);
-        System.out.println("Captura: " + golden);
-        System.out.println("Carpeta de trabajo: " + trabajo);
-        System.out.println("Normalización tabulador -> espacio: " + (normalizar ? "activada" : "DESACTIVADA (corrida de control)"));
-
-        // Tarea 3: se corren TODOS los casos capturados; Property 2 solo en los de isBugCondition falso,
-        // Property 3 (detección) en todos
-        List<Caso> casos = new ArrayList<>();
-        Map<String, byte[]> fuentes = new LinkedHashMap<>();
-        Map<String, List<String>> metasCapt = new LinkedHashMap<>();
-        Map<String, Boolean> preservable = new LinkedHashMap<>();
-        int omitidos = 0;
-        for (String linea : Files.readAllLines(indice, StandardCharsets.UTF_8)) {
-            if (linea.isBlank()) continue;
-            String[] p = linea.split("\t");
-            List<String> meta = Files.readAllLines(golden.resolve(p[0]).resolve("meta.txt"), StandardCharsets.UTF_8);
-            Caso c = new Caso();
-            c.id = p[0];
-            c.archivo = p[1];
-            c.argumento = p[2];
-            c.generado = p[3].equals("generado");
-            casos.add(c);
-            fuentes.put(c.id, Files.readAllBytes(golden.resolve(c.id).resolve("fuente.bin")));
-            metasCapt.put(c.id, meta);
-            boolean pr = Preservable(p[1], meta);
-            preservable.put(c.id, pr);
-            if (!pr) omitidos++;
-        }
-        System.out.println("Casos capturados: " + casos.size() + "; sin mensajes (Property 2): " + (casos.size() - omitidos)
-                + "; con mensajes (solo Property 3): " + omitidos);
-
-        Map<String, ResultadoHijo> res = CorrerCasos(casos, fuentes, trabajo, logs);
-
-        for (Caso c : casos) {
-            ResultadoHijo r = res.get(c.id);
-            // Property 3 en todos los casos: GetErrors(), correspondencia con GetMensajes() e Inspect()
-            List<String> difDet = new ArrayList<>();
-            ProblemasDeEjecucion(r, difDet);
-            ComprobarDeteccion(c, fuentes.get(c.id), metasCapt.get(c.id), LineasMeta(r.stdout), difDet);
-            Registrar("detección " + c.id, difDet, r);
-            if (!preservable.get(c.id)) continue;
-
-            List<String> dif = new ArrayList<>();
-            ProblemasDeEjecucion(r, dif);
-            // Control del arnés: el generador sigue siendo determinista
-            if (c.generado) {
-                int semilla = Integer.parseInt(c.id.substring(1));
-                if (!Arrays.equals(Generar(semilla).bytes(), fuentes.get(c.id))) {
-                    dif.add("el generador ya no produce el mismo fuente para la semilla " + semilla);
-                }
-            }
-            // Mismo valor de retorno: true
-            List<String> meta = LineasMeta(r.stdout);
-            if (!meta.contains("TESTPROYECTO|true")) dif.add("TestProyecto distinto de true: " + LineaConPrefijo(r.stdout, "TESTPROYECTO|"));
-
-            Path esp = golden.resolve(c.id).resolve("archivos");
-            Path obt = trabajo.resolve(c.id);
-            // Mismos archivos en las mismas ubicaciones (-errores.txt, .a68 y el fuente)
-            List<String> nEsp = ArchivosRec(esp), nObt = ArchivosRec(obt);
-            if (!nEsp.equals(nObt)) dif.add("archivos distintos: esperado " + nEsp + ", obtenido " + nObt);
-            for (String n : nEsp) {
-                if (!nObt.contains(n)) continue;
-                byte[] be = Files.readAllBytes(esp.resolve(n));
-                byte[] bo = Files.readAllBytes(obt.resolve(n));
-                if (n.endsWith("-errores.txt")) {
-                    // -errores.txt byte a byte, tras normalizar el separador (salvo en la corrida de control)
-                    byte[] esperado = normalizar ? NormalizarSeparador(be) : be;
-                    if (!Arrays.equals(esperado, bo)) {
-                        dif.add(n + " distinto: esperado [" + Escapar(new String(esperado, StandardCharsets.ISO_8859_1))
-                                + "], obtenido [" + Escapar(new String(bo, StandardCharsets.ISO_8859_1)) + "]");
-                    }
-                } else if (!Arrays.equals(be, bo)) {
-                    // .a68 igual; el fuente, además, igual al original
-                    dif.add(n + " no coincide byte a byte");
-                }
-            }
-            // Fuente sin modificar (también con .MINGOL)
-            Path fuente = obt.resolve(c.archivo);
-            if (!Files.exists(fuente) || !Arrays.equals(fuentes.get(c.id), Files.readAllBytes(fuente))) dif.add("el fuente cambió");
-            Registrar("preservación " + c.id, dif, r);
-        }
-
-        // Tarea 3: 3.11 y arreglos originales (R6), en un hijo con límite
-        ReglasEnHijo(carpeta, logs);
-        // Tarea 3: arreglos de críticos (R7): e2, e8, e9 terminan en < 10 s; c1 sin excepción
-        CasosR7(carpeta.resolve("r7"), logs);
-
-        // Comprobaciones que dependen de GetMensajes() y se saltaron (código sin arreglar)
-        if (sinMensajesParser > 0) {
-            System.out.println("AVISO: Parser.GetMensajes() no existe: se saltó la correspondencia GetErrors() <-> GetMensajes() en "
-                    + sinMensajesParser + " casos");
-        }
-        if (sinMensajesEvaluador > 0) {
-            System.out.println("AVISO: Evaluator.GetMensajes() no existe: se saltó \"Inspect() es el primer semántico del archivo\" en "
-                    + sinMensajesEvaluador + " casos");
-        }
-        System.out.println("Inspect() distintos aceptados por las excepciones de Property 3: " + inspectAceptados);
-        ImprimirResumen("preservacion");
-    }
-
-    // ------------------------------------------------------------------
-    // Tarea 3: Property 3 (detección sin cambios en parser y evaluador)
-    // ------------------------------------------------------------------
-
-    // Casos en que se saltó una comprobación porque GetMensajes() no existe (se avisa al final)
-    private static int sinMensajesParser = 0, sinMensajesEvaluador = 0, inspectAceptados = 0;
 
     private static final Pattern LINEA_CADENA = Pattern.compile("^\tLinea (\\d+)");
     private static final Pattern ERROR_CADENA = Pattern.compile("Error (\\d{3}): (.*)$");
     private static final Pattern ADVERTENCIA_CADENA = Pattern.compile("ADVERTENCIA: Instruccion (.*) no soportada por esta version$");
     private static final Pattern ESPERABA_CADENA = Pattern.compile("^Se esperaba un token de tipo (\\S+) pero se obtuvo un (\\S+)$");
-    private static final Pattern CODIGO_INSPECT = Pattern.compile("Error (\\d{3})");
-
-    // GetErrors() idéntico, correspondencia 1 a 1 con GetMensajes() e Inspect() del evaluador
-    private static void ComprobarDeteccion(Caso c, byte[] fuente, List<String> capt, List<String> nueva, List<String> dif) {
-        // GetErrors() idéntico al capturado (mismas cadenas, mismo orden)
-        List<String> eCapt = Valores(capt, "GETERRORS|"), eNueva = Valores(nueva, "GETERRORS|");
-        if (!eCapt.equals(eNueva)) {
-            dif.add("GetErrors() distinto: capturado " + eCapt + ", obtenido " + eNueva);
-        }
-        if (!Objects.equals(Valor(capt, "GETERRORS_TOTAL|"), Valor(nueva, "GETERRORS_TOTAL|"))) {
-            dif.add("GETERRORS_TOTAL distinto: " + Valor(capt, "GETERRORS_TOTAL|") + " / " + Valor(nueva, "GETERRORS_TOTAL|"));
-        }
-
-        // Correspondencia GetErrors() <-> GetMensajes() del parser (si GetMensajes() existe)
-        if (nueva.contains("MENSAJES_NO_EXISTE|parser")) {
-            sinMensajesParser++;
-        } else {
-            List<String[]> msj = Mensajes(nueva, "parser");
-            if (msj.size() != eNueva.size()) {
-                dif.add("GetMensajes() del parser con " + msj.size() + " elementos y GetErrors() con " + eNueva.size());
-            } else {
-                for (int i = 0; i < msj.size(); i++) {
-                    String d = Corresponde(Desescapar(eNueva.get(i)), msj.get(i));
-                    if (d != null) dif.add("correspondencia " + (i + 1) + ": " + d);
-                }
-            }
-        }
-
-        // Inspect() con parser sin mensajes (en la captura)
-        if (!capt.contains("GETERRORS_TOTAL|0")) return;
-        String iCapt = Valor(capt, "INSPECT|"), iNueva = Valor(nueva, "INSPECT|");
-        if (iCapt == null) {
-            dif.add("la captura no tiene INSPECT con parser sin mensajes");
-            return;
-        }
-        if (!iCapt.equals(iNueva)) {
-            String fin = Desescapar(iCapt);
-            boolean hayEnd = LineasFuente(fuente).stream().anyMatch(l -> l.trim().equals("END"));
-            boolean falso308 = fin.contains("Error 308") && hayEnd;
-            boolean end306 = iNueva != null && iNueva.equals(iCapt.replace("Error 305: No puede haber más de una sentencia END",
-                    "Error 306: No puede haber más de una sentencia END"));
-            boolean letErrado = nueva.contains("LET_ERRADO|true");
-            boolean nuevoErrado = iNueva != null && iNueva.startsWith("Errado|");
-            if (end306 || ((falso308 || letErrado) && nuevoErrado)) {
-                inspectAceptados++;
-            } else {
-                dif.add("Inspect() distinto: capturado [" + iCapt + "], obtenido [" + iNueva + "] (308 falso: " + falso308
-                        + ", valor inicial Errado: " + letErrado + ")");
-            }
-        }
-
-        // Ese Errado es el primer semántico del archivo (solo cuando existe Evaluator.GetMensajes(), tras el arreglo)
-        if (nueva.contains("MENSAJES_NO_EXISTE|evaluador")) {
-            sinMensajesEvaluador++;
-            return;
-        }
-        if (iNueva == null || !iNueva.startsWith("Errado|")) return;
-        java.util.regex.Matcher mc = CODIGO_INSPECT.matcher(Desescapar(iNueva));
-        if (!mc.find()) return;
-        String codigo = mc.group(1);
-        // 307/308 no pertenecen a ninguna línea: van al bloque final
-        if (codigo.equals("307") || codigo.equals("308")) return;
-        int n = LineasFuente(fuente).size();
-        String[] primero = null;
-        int mejor = Integer.MAX_VALUE;
-        for (String[] m : Mensajes(nueva, "evaluador")) {
-            if (!"SEMANTICO".equals(m[2])) continue;
-            int linea = Integer.parseInt(m[0]);
-            // Clave de orden del archivo: sin línea al final; fuera de rango bajo la última (D1)
-            int clave = linea == 0 ? Integer.MAX_VALUE : (linea > n ? (n >= 1 ? n : Integer.MAX_VALUE) : linea);
-            if (clave < mejor) {
-                mejor = clave;
-                primero = m;
-            }
-        }
-        if (primero == null || !codigo.equals(primero[1])) {
-            dif.add("Inspect() con código " + codigo + " no es el primer semántico del archivo ("
-                    + (primero == null ? "ninguno" : primero[1] + " en la línea " + primero[0]) + ")");
-        }
-    }
 
     // Una cadena de GetErrors() corresponde a su Mensaje: línea, código (tabla 2.10), categoría y lexema/texto
     // Campos del Mensaje: [linea, codigo, categoria, lexema, texto]
@@ -1172,29 +819,9 @@ public class PruebasArchivoErrores {
         return literal;
     }
 
-    // Mensajes de un origen en la huella: [linea, codigo, categoria, lexema, texto]
-    private static List<String[]> Mensajes(List<String> meta, String origen) {
-        List<String[]> r = new ArrayList<>();
-        String pref = "MENSAJE|" + origen + "|";
-        for (String l : meta) {
-            if (!l.startsWith(pref)) continue;
-            String[] p = l.substring(pref.length()).split("\\|", -1);
-            String[] f = new String[5];
-            for (int i = 0; i < 5; i++) f[i] = i < p.length ? Desescapar(p[i]) : null;
-            r.add(f);
-        }
-        return r;
-    }
-
     private static String Valor(List<String> meta, String prefijo) {
         for (String l : meta) if (l.startsWith(prefijo)) return l.substring(prefijo.length());
         return null;
-    }
-
-    private static List<String> Valores(List<String> meta, String prefijo) {
-        List<String> r = new ArrayList<>();
-        for (String l : meta) if (l.startsWith(prefijo)) r.add(l.substring(prefijo.length()));
-        return r;
     }
 
     // Inverso de Escapar/EscaparCampo
@@ -1230,226 +857,8 @@ public class PruebasArchivoErrores {
         return lineas;
     }
 
-    // 3.11 y R6 en un hijo (el parser y el lexer corren con límite de tiempo)
-    private static void ReglasEnHijo(Path carpeta, Path logs) throws Exception {
-        Path dir = carpeta.resolve("reglas");
-        BorrarArbol(dir);
-        Files.createDirectories(dir);
-        ResultadoHijo r = LanzarHijo(Arrays.asList("hijoreglas"), dir, logs, "reglas", false, MAX_HUELLA);
-        List<String> base = new ArrayList<>();
-        ProblemasDeEjecucion(r, base);
-        List<String> lineas = LineasConPrefijo(r.stdout, "REGLA|");
-        if (lineas.isEmpty()) base.add("el hijo no informó ninguna regla");
-        if (!base.isEmpty()) Registrar("reglas (hijo)", base, r);
-        for (String l : lineas) {
-            // REGLA|nombre|OK  o  REGLA|nombre|FALLA|detalle
-            String[] p = l.split("\\|", 3);
-            List<String> dif = new ArrayList<>();
-            if (!p[1].equals("OK")) dif.add(Desescapar(p.length > 2 ? p[2] : "sin detalle"));
-            Registrar(Desescapar(p[0]), dif, r);
-        }
-    }
-
-    // R7: los programas de críticos que colgaban o lanzaban excepción terminan bien en el hijo
-    private static void CasosR7(Path trabajo, Path logs) throws Exception {
-        BorrarArbol(trabajo);
-        List<Caso> casos = new ArrayList<>();
-        // e2 y e9 sin salto final, como en PruebasCriticos
-        casos.add(Nuevo("e2", "e2.mingol", "e2.mingol", "e2-errores.txt", "e2.a68", false,
-                "BEGIN", "INT x := 1;", "IF (x) THEN"));
-        casos.add(Nuevo("e8", "e8.mingol", "e8.mingol", "e8-errores.txt", "e8.a68", true,
-                "BEGIN", "INT x := 1;", "IF (x) THEN", "SKIP;", "END"));
-        casos.add(Nuevo("e9", "e9.mingol", "e9.mingol", "e9-errores.txt", "e9.a68", false,
-                "BEGIN", "INT x := 1;", "IF (x) THEN", "print ( \"a\" );", "ELSE"));
-        casos.add(Simple("c1", "BEGIN", "inicio:", "CHAR y := inicio;", "END"));
-        Map<String, byte[]> fuentes = new LinkedHashMap<>();
-        for (Caso c : casos) fuentes.put(c.id, c.bytes());
-        Map<String, ResultadoHijo> res = CorrerCasos(casos, fuentes, trabajo, logs.resolve("r7"));
-        for (Caso c : casos) {
-            ResultadoHijo r = res.get(c.id);
-            List<String> dif = new ArrayList<>();
-            // Termina en el hijo antes del límite y sin excepción no controlada
-            ProblemasDeEjecucion(r, dif);
-            if (r.termino && r.milis >= LIMITE_SEGUNDOS * 1000) dif.add("tardó " + r.milis + " ms");
-            if (Valor(LineasMeta(r.stdout), "TESTPROYECTO|") == null) dif.add("TestProyecto no devolvió valor");
-            Registrar("R7 " + c.id + " termina en < " + LIMITE_SEGUNDOS + " s sin excepción", dif, r);
-        }
-    }
-
     // ------------------------------------------------------------------
-    // Modo hijoreglas: 3.11 y los arreglos originales (R6), un resultado por línea
-    // ------------------------------------------------------------------
-
-    // OBSOLETO desde el área 3 (sintaxis corregida): sus fuentes usan declaraciones con valor inicial
-    // (ahora 210) y la regla del ";" vieja. Solo lo usa preservacion, que no está en CI; no se actualiza
-    private static void HijoReglas() throws Exception {
-        PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, "UTF-8");
-
-        // 3.11: declaraciones con valor inicial sin identificadores no definidos
-        Reiniciar();
-        String fuenteA = "BEGIN\nINT a := 1;\nREAL r := 1.5;\nINT b := 7;\nEND\n";
-        Parser pa = new Parser(new Lexer(fuenteA));
-        Program progA = pa.ParseProgram();
-        Environment envA = new Environment();
-        Objeto resA = Evaluator.Evaluate(progA, envA);
-        List<String> d = new ArrayList<>();
-        if (!pa.GetErrors().isEmpty()) d.add("el parser registró " + pa.GetErrors());
-        for (String v : new String[]{"a", "r", "b"}) {
-            Object val = envA.get(v);
-            if (val == null || val instanceof Errado) d.add(v + " no quedó registrada (" + val + ")");
-        }
-        if (resA instanceof Errado) d.add("Evaluate devolvió " + ((Errado) resA).Inspect());
-        if (Evaluator.hasErrors) d.add("Evaluator.hasErrors=true");
-        int mA = CuantosMensajesEvaluador();
-        if (mA > 0) d.add("el evaluador registró " + mA + " mensajes");
-        Regla(out, "3.11 declaraciones sin identificadores no definidos se registran sin mensajes", d);
-
-        // 3.11: la redeclaración da 304 (sentencia por sentencia, sin el corte del programa)
-        Reiniciar();
-        Program progB = new Parser(new Lexer("BEGIN\nINT a := 1;\nINT a := 2;\nEND\n")).ParseProgram();
-        Environment envB = new Environment();
-        d = new ArrayList<>();
-        List<String> inspects = new ArrayList<>();
-        for (Statement st : progB.statements) {
-            Objeto r = Evaluator.Evaluate(st, envB);
-            if (r instanceof Errado) inspects.add(((Errado) r).Inspect());
-        }
-        if (inspects.size() != 1 || !inspects.get(0).contains("Error 304")) d.add("se esperaba un único 304; errores: " + inspects);
-        int mB = CuantosMensajesEvaluador();
-        if (mB >= 0 && mB != 1) d.add("el evaluador registró " + mB + " mensajes (se esperaba 1, el 304)");
-        Regla(out, "3.11 la redeclaración da 304", d);
-
-        // R6 (arreglo 1): Parser.line coincide con la línea del lexer (una línea por comando)
-        String[][] programas = {
-            {"", "BEGIN", "INT a := 1;", "", "   ", "x = 3;", "END"},
-            {"BEGIN", "LONG x;", "", "print ( (a) );", "END"},
-            {"BEGIN", "", "INT a := 1;", "INT b := 2.5;", "END"},
-        };
-        // Línea física del lexema que provoca los mensajes de cada programa
-        String[] lexemas = {"=", "LONG", "2.5"};
-        for (int k = 0; k < programas.length; k++) {
-            d = new ArrayList<>();
-            String fuente = String.join("\n", programas[k]) + "\n";
-            Parser p = new Parser(new Lexer(fuente));
-            p.ParseProgram();
-            // Línea del lexer: EOL vistos antes del token + 1
-            List<Integer> lineasLexer = new ArrayList<>();
-            Lexer lx = new Lexer(fuente);
-            int linea = 1;
-            for (int i = 0; i < 10000; i++) {
-                Token t = lx.NextToken();
-                if (t.getTokenType() == MingolToken.EOF) break;
-                if (t.getLiteral().equals(lexemas[k]) && !lineasLexer.contains(linea)) lineasLexer.add(linea);
-                // Tras el arreglo (Token.getLine), la línea del token coincide con la contada por EOL
-                Integer lt = LineaToken(t);
-                if (lt != null && lt != linea) d.add("token [" + Escapar(t.getLiteral()) + "] con getLine " + lt + " y no " + linea);
-                if (t.getTokenType() == MingolToken.EOL) linea++;
-            }
-            if (lineasLexer.size() != 1) d.add("el lexema " + lexemas[k] + " no está en una sola línea: " + lineasLexer);
-            if (p.GetErrors().isEmpty()) d.add("el parser no registró nada (el caso no prueba la línea)");
-            for (String e : p.GetErrors()) {
-                java.util.regex.Matcher ml = LINEA_CADENA.matcher(e);
-                if (!ml.find() || lineasLexer.isEmpty() || Integer.parseInt(ml.group(1)) != lineasLexer.get(0)) {
-                    d.add("[" + Escapar(e) + "] no está en la línea del lexer " + lineasLexer);
-                }
-            }
-            Regla(out, "R6 Parser.line = línea del lexer, programa " + (k + 1), d);
-        }
-
-        // R6 (arreglo 3): 12345678901 da un error controlado, sin excepción
-        // Actualizado por un comportamiento léxico corregido (3.10): ahora es un 108 [12345678901] en GetMensajes()
-        d = new ArrayList<>();
-        try {
-            Parser p = new Parser(new Lexer("BEGIN\nINT a := 12345678901;\nEND\n"));
-            p.ParseProgram();
-            boolean hay = p.GetMensajes().stream().anyMatch(m -> Integer.valueOf(108).equals(m.getCodigo())
-                    && "12345678901".equals(m.getLexema()));
-            if (!hay) d.add("no está el 108 [12345678901]: " + Formateados(p.GetMensajes()));
-            if (!p.hasErrors) d.add("hasErrors=false");
-        } catch (Throwable t) {
-            d.add("excepción " + t.getClass().getName());
-        }
-        Regla(out, "R6 12345678901 produce error controlado sin excepción", d);
-
-        // R6 (arreglo 2): un EOL por línea física (vacías, con espacios y con cadenas)
-        String[][] fuentes = {
-            {"BEGIN", "END"},
-            {"", "BEGIN", "   ", "INT a := 1;", "print ( \"a b\" );", "", "END", ""},
-            {"   ", "", ""},
-        };
-        for (int k = 0; k < fuentes.length; k++) {
-            d = new ArrayList<>();
-            String fuente = String.join("\n", fuentes[k]) + "\n";
-            Lexer lx = new Lexer(fuente);
-            int eol = 0;
-            boolean eof = false;
-            for (int i = 0; i < 10000; i++) {
-                Token t = lx.NextToken();
-                if (t.getTokenType() == MingolToken.EOF) {
-                    eof = true;
-                    break;
-                }
-                if (t.getTokenType() == MingolToken.EOL) eol++;
-            }
-            if (!eof) d.add("el lexer no llegó a EOF");
-            if (eol != fuentes[k].length) d.add(eol + " EOL para " + fuentes[k].length + " líneas");
-            Regla(out, "R6 un EOL por línea, fuente " + (k + 1) + " (" + fuentes[k].length + " líneas)", d);
-        }
-        out.flush();
-        System.exit(0);
-    }
-
-    private static void Regla(PrintStream out, String nombre, List<String> dif) {
-        out.println("REGLA|" + EscaparCampo(nombre) + "|" + (dif.isEmpty() ? "OK" : "FALLA|" + Escapar(String.join("; ", dif))));
-    }
-
-    // Evaluator.Reiniciar() si existe (tras el arreglo); si no, se pone hasErrors en false a mano
-    private static void Reiniciar() {
-        try {
-            Evaluator.class.getMethod("Reiniciar").invoke(null);
-        } catch (NoSuchMethodException e) {
-            Evaluator.hasErrors = false;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    // Token.getLine() por reflexión; null si no existe (código sin arreglar)
-    private static Integer LineaToken(Token t) {
-        try {
-            return (Integer) Token.class.getMethod("getLine").invoke(t);
-        } catch (NoSuchMethodException e) {
-            return null;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    // Tamaño de Evaluator.GetMensajes() por reflexión; -1 si no existe
-    private static int CuantosMensajesEvaluador() {
-        try {
-            return ((List<?>) Evaluator.class.getMethod("GetMensajes").invoke(null)).size();
-        } catch (NoSuchMethodException e) {
-            return -1;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    // Cambia el tabulador que sigue al número de 5 dígitos por un espacio (2.2); el resto queda igual
-    private static byte[] NormalizarSeparador(byte[] b) {
-        String[] partes = new String(b, StandardCharsets.ISO_8859_1).split("\n", -1);
-        for (int i = 0; i < partes.length; i++) {
-            String p = partes[i];
-            if (p.length() >= 6 && p.substring(0, 5).chars().allMatch(Character::isDigit) && p.charAt(5) == '\t') {
-                partes[i] = p.substring(0, 5) + " " + p.substring(6);
-            }
-        }
-        return String.join("\n", partes).getBytes(StandardCharsets.ISO_8859_1);
-    }
-
-    // ------------------------------------------------------------------
-    // Tarea 2: ejecución en paralelo y utilidades de captura
+    // Ejecución en paralelo y utilidades de propiedades y main (Pendiente 8: sin la captura)
     // ------------------------------------------------------------------
 
     // Cada caso en su propia carpeta y su propio hijo (R8); HILOS hijos a la vez
@@ -2503,13 +1912,13 @@ public class PruebasArchivoErrores {
         return LanzarHijo(argsHijo, directorio, nombreLog, forzarEa, 64 * 1024);
     }
 
-    // Versión con límite de lectura propio (captura/preservación leen la huella completa)
+    // Versión con límite de lectura propio (propiedades y main leen la huella completa)
     private static ResultadoHijo LanzarHijo(List<String> argsHijo, Path directorio, String nombreLog, boolean forzarEa,
                                             int maxBytes) throws Exception {
         return LanzarHijo(argsHijo, directorio, directorio.resolve("logs"), nombreLog, forzarEa, maxBytes);
     }
 
-    // Versión con carpeta de logs propia: en captura/preservación los logs no se mezclan con los archivos del caso
+    // Versión con carpeta de logs propia: en CorrerCasos los logs no se mezclan con los archivos del caso
     private static ResultadoHijo LanzarHijo(List<String> argsHijo, Path directorio, Path logs, String nombreLog,
                                             boolean forzarEa, int maxBytes) throws Exception {
         String java = Paths.get(System.getProperty("java.home"), "bin", "java.exe").toString();
@@ -2565,14 +1974,14 @@ public class PruebasArchivoErrores {
     // Utilidades (copiadas y adaptadas de PruebasCriticos)
     // ------------------------------------------------------------------
 
-    // Carpeta de la captura de las tareas 2 y 3: %TEMP%\mingol-errores-golden
+    // %TEMP%\mingol-errores-golden: Pendiente 8, ya no hay captura; solo se usa su padre (la raíz de %TEMP%)
     private static Path CarpetaGolden() {
         String temp = System.getenv("TEMP");
         Path base = (temp != null && !temp.isBlank()) ? Paths.get(temp) : Paths.get(System.getProperty("java.io.tmpdir"));
         return base.resolve("mingol-errores-golden").toAbsolutePath().normalize();
     }
 
-    // Borra una carpeta de trabajo del arnés; se niega a borrar fuera de %TEMP% (para las tareas 2 y 3)
+    // Borra una carpeta de trabajo del arnés; se niega a borrar fuera de %TEMP% (propiedades y main)
     @SuppressWarnings("unused")
     private static void BorrarArbol(Path dir) throws IOException {
         if (!Files.exists(dir)) return;
